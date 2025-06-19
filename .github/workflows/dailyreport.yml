@@ -1,0 +1,92 @@
+name: daily-scraper-and-report
+
+on:
+  schedule:
+    - cron: '0 9 * * *'    # Runs daily at 9:00 AM UTC
+    - cron: '0 15 * * *'   # Runs daily at 3:00 PM UTC
+  workflow_dispatch:       # Allows manual triggering
+
+jobs:
+  scrape-and-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Increase Swap Space (Only if Not Exists)
+        run: |
+          if [ ! -f /swapfile ]; then
+            echo "Creating a 4GB swap file..."
+            sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+          else
+            echo "Swap file already exists. Skipping creation."
+          fi
+
+
+      # Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11  # Use the latest compatible version
+
+      # Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install webdriver-manager selenium beautifulsoup4 pandas undetected-chromedriver groq
+          
+
+      # Update CA certificates (Fixes SSL verification issues)
+      - name: Update CA certificates
+        run: sudo apt-get install --reinstall -y ca-certificates
+
+      # Install Google Chrome
+      - name: Install Google Chrome
+        run: |
+          wget -q -O google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i google-chrome.deb || sudo apt-get install -f -y
+
+      # Install ChromeDriver
+      - name: Install ChromeDriver
+        run: |
+          wget -q -O chromedriver.zip https://chromedriver.storage.googleapis.com/$(curl -sS https://chromedriver.storage.googleapis.com/LATEST_RELEASE)/chromedriver_linux64.zip
+          unzip chromedriver.zip -d /usr/local/bin/
+          chmod +x /usr/local/bin/chromedriver
+
+      # Verify Google Chrome and ChromeDriver Versions
+      - name: Verify Installations
+        run: |
+          google-chrome --version
+          chromedriver --version
+
+      # Test ChromeDriver functionality
+      - name: Test ChromeDriver
+        run: |
+          echo "from selenium import webdriver
+          from selenium.webdriver.chrome.service import Service
+          from selenium.webdriver.chrome.options import Options
+          from webdriver_manager.chrome import ChromeDriverManager
+          options = Options()
+          options.add_argument('--headless')
+          options.add_argument('--no-sandbox')
+          options.add_argument('--disable-dev-shm-usage')
+          driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+          driver.get('https://www.google.com')
+          print(driver.title)
+          driver.quit()" > test_chrome.py
+          python test_chrome.py
+
+      # Test website connectivity
+      - name: Test website connectivity
+        run: curl -I https://www.latestnigeriannews.com/
+
+      # Run the scraper and send email
+      - name: Run Scraper & Send Email
+        env:
+          USER_EMAIL: ${{ secrets.USER_EMAIL }}
+          USER_PASSWORD: ${{ secrets.USER_PASSWORD }}
+        run: python send-email.py

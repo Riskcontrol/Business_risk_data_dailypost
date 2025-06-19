@@ -1,0 +1,9 @@
+webdriver-manager
+selenium
+beautifulsoup4
+pandas
+undetected-chromedriver
+groq
+geopy
+nltk
+feedparser
