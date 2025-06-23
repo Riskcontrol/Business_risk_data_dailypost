@@ -89,4 +89,5 @@ jobs:
         env:
           USER_EMAIL: ${{ secrets.USER_EMAIL }}
           USER_PASSWORD: ${{ secrets.USER_PASSWORD }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python send-email.py
