@@ -23,7 +23,7 @@ from groq import AsyncGroq
 # ================================
 
 # Initialize Groq API Client
-client = AsyncGroq(api_key="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")
+client = AsyncGroq(api_key=os.environ["GROQ_API_KEY"])
 
 # User-Agent Rotation
 USER_AGENTS = [
