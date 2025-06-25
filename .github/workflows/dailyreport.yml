@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install webdriver-manager selenium beautifulsoup4 pandas undetected-chromedriver groq
+          pip install webdriver-manager selenium beautifulsoup4 pandas undetected-chromedriver groq google-generativeai
           
 
       # Update CA certificates (Fixes SSL verification issues)
