@@ -850,7 +850,7 @@ client = AsyncGroq(api_key=os.environ["GROQ_API_KEY"])
 #GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"  # Replace with your actual Gemini API key
 #genai.configure(api_key=GEMINI_API_KEY)
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-gemini_model = genai.GenerativeModel('gemini-1.5-pro')
+gemini_model = genai.GenerativeModel('gemini-2.0-flash')
 
 # User-Agent Rotation
 USER_AGENTS = [
