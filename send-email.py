@@ -1844,53 +1844,82 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
+import requests
 from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 from groq import AsyncGroq
 import google.generativeai as genai
 import json
+from urllib.parse import urljoin, urlparse
+import logging
 
 # ================================
-# 🔹 1. Initialize APIs & Web Scraper
+# 🔹 1. Setup Logging
+# ================================
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# ================================
+# 🔹 2. Initialize APIs
 # ================================
 
 # Initialize Groq API Client
-# client = AsyncGroq(api_key="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")
-client = AsyncGroq(api_key=os.environ["GROQ_API_KEY"])
+client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY", "your_groq_api_key_here"))
 
 # Initialize Gemini API Client
 GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"  # Replace with your actual Gemini API key
 genai.configure(api_key=GEMINI_API_KEY)
 gemini_model = genai.GenerativeModel('gemini-1.5-pro')
 
+# ================================
+# 🔹 3. Constants and Configuration
+# ================================
+
 # User-Agent Rotation
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
 ]
 
-# News Sources for Business Data
-BUSINESS_NEWS_URLS = [
-    "https://www.dailypost.ng",
+# DailyPost specific URLs
+DAILYPOST_URLS = [
     "https://dailypost.ng/category/business/",
     "https://dailypost.ng/category/economy/",
-    "https://punchng.com/topics/business/",
-    "https://www.vanguardngr.com/category/business/",
-    "https://www.premiumtimesng.com/business/"
+    "https://dailypost.ng/"
 ]
 
-# ================================
-# 🔹 2. Business Risk Framework
-# ================================
+# Business Keywords for filtering
+BUSINESS_KEYWORDS = [
+    'gdp', 'inflation', 'unemployment', 'economic', 'economy', 'recession', 'growth', 'naira', 'dollar', 'forex',
+    'interest rate', 'monetary policy', 'fiscal policy', 'budget', 'revenue', 'tax', 'taxation',
+    'business', 'company', 'industry', 'factory', 'manufacturing', 'production', 'supply chain', 'logistics',
+    'import', 'export', 'trade', 'commerce', 'investment', 'investor', 'market', 'price', 'cost',
+    'infrastructure', 'port', 'airport', 'road', 'railway', 'power', 'electricity', 'fuel', 'energy',
+    'telecommunications', 'banking', 'finance', 'insurance', 'loan', 'credit',
+    'strike', 'protest', 'unrest', 'violence', 'attack', 'kidnap', 'terrorism', 'bandit', 'herdsmen',
+    'vandalism', 'theft', 'fraud', 'corruption', 'policy', 'regulation', 'compliance', 'enforcement',
+    'shutdown', 'closure', 'disruption', 'delay', 'shortage', 'scarcity',
+    'oil', 'gas', 'petroleum', 'pipeline', 'refinery', 'crude', 'nnpc', 'upstream', 'downstream',
+    'agriculture', 'farming', 'crop', 'livestock', 'food', 'harvest',
+    'mining', 'solid minerals', 'gold', 'coal', 'tin', 'iron ore',
+    'healthcare', 'hospital', 'medical', 'drug', 'pharmaceutical', 'medicine',
+    'education', 'school', 'university', 'student', 'teacher', 'academic',
+    'construction', 'building', 'real estate', 'property', 'housing', 'land'
+]
 
-# Risk Factors and their indicators based on your SOP
+# Nigerian states
+NIGERIAN_STATES = [
+    'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa',
+    'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu',
+    'Federal Capital Territory', 'FCT', 'Abuja', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 
+    'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 
+    'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 
+    'Yobe', 'Zamfara'
+]
+
+# Business Risk Framework
 BUSINESS_RISK_FACTORS = {
     "Economic": ["GDP", "Unemployment Rate", "Inflation rate"],
     "Political": ["Government stability", "Corruption", "Rule of law"],
@@ -1902,7 +1931,7 @@ BUSINESS_RISK_FACTORS = {
     "Regulatory and Legal": ["Burden Of Compliance", "Legal Framework", "Enforcement"]
 }
 
-# Industry Types and Subtypes
+# Industry Mapping
 INDUSTRY_MAPPING = {
     "Manufacturing": ["Factory", "Warehouse", "Supermarket"],
     "Healthcare": ["Hospitals", "Pharmaceutical"],
@@ -1917,21 +1946,6 @@ INDUSTRY_MAPPING = {
     "Real Estate & Construction": ["Construction", "Real estate"]
 }
 
-# Industry Risk Types
-INDUSTRY_RISK_TYPES = {
-    "Manufacturing": ["Supply Chain Disruption", "Forex/Import Policy", "Labour Unrest", "Insecurity", "Energy Costs"],
-    "Healthcare": ["Drug Supply Shortages", "Regulatory Changes", "Security Risks (Kidnapping/Attacks)", "Workforce Shortage", "Counterfeiting"],
-    "Finance & Banking": ["Cybersecurity Threats", "Regulatory Policy Shifts", "Economic Instability", "Naira Volatility", "Fraud Trends"],
-    "Oil & Gas": ["Pipeline Vandalism", "Community Unrest", "Regulatory Compliance", "Environmental Incidents", "Militant Activity"],
-    "Education": ["Student Protests", "Terrorism/Insecurity", "Infrastructure Vandalism", "Regulatory Shifts", "Tuition Policy Changes"],
-    "Logistics & Transportation": ["Road Infrastructure Quality", "Port Congestion", "Fuel Price Volatility", "Cargo Theft/Banditry", "Regulatory Permits", "Insecurity"],
-    "Travel & Hospitality": ["Insecurity (Kidnapping/Terrorism)", "Health Epidemics", "Currency Volatility", "Regulatory Shifts (Tourism Policies)", "Labour Strikes"],
-    "Agro-allied": ["Climate Risks", "Banditry & Herdsmen Attacks", "Market Price Volatility", "Supply Chain Blockages", "Land Use Policy", "Input Costs"],
-    "Telecommunications": ["Vandalism of Infrastructure", "Regulatory Compliance (NCC)", "Cybersecurity Threats", "Power Supply Disruption", "Taxation Changes"],
-    "Mining": ["Community Unrest", "Illegal Mining Activities", "Environmental Regulations", "Insecurity (Banditry/Terrorism)", "Licensing Delays"],
-    "Real Estate & Construction": ["Policy Shifts (Land Use Act)", "Material Cost Volatility", "Regulatory Approvals Delays", "Insecurity (Site Theft/Kidnap)", "Infrastructure Quality"]
-}
-
 # Impact Level Mapping
 IMPACT_LEVEL_MAPPING = {
     1: "Low",
@@ -1944,260 +1958,129 @@ IMPACT_LEVEL_MAPPING = {
     "Critical": 4
 }
 
-# Business Keywords for filtering
-BUSINESS_KEYWORDS = [
-    # Economic indicators
-    'gdp', 'inflation', 'unemployment', 'economic', 'economy', 'recession', 'growth', 'naira', 'dollar', 'forex',
-    'interest rate', 'monetary policy', 'fiscal policy', 'budget', 'revenue', 'tax', 'taxation',
-    
-    # Business operations
-    'business', 'company', 'industry', 'factory', 'manufacturing', 'production', 'supply chain', 'logistics',
-    'import', 'export', 'trade', 'commerce', 'investment', 'investor', 'market', 'price', 'cost',
-    
-    # Infrastructure and operations
-    'infrastructure', 'port', 'airport', 'road', 'railway', 'power', 'electricity', 'fuel', 'energy',
-    'telecommunications', 'banking', 'finance', 'insurance', 'loan', 'credit',
-    
-    # Risk-related terms
-    'strike', 'protest', 'unrest', 'violence', 'attack', 'kidnap', 'terrorism', 'bandit', 'herdsmen',
-    'vandalism', 'theft', 'fraud', 'corruption', 'policy', 'regulation', 'compliance', 'enforcement',
-    'shutdown', 'closure', 'disruption', 'delay', 'shortage', 'scarcity',
-    
-    # Industry-specific
-    'oil', 'gas', 'petroleum', 'pipeline', 'refinery', 'crude', 'nnpc', 'upstream', 'downstream',
-    'agriculture', 'farming', 'crop', 'livestock', 'food', 'harvest',
-    'mining', 'solid minerals', 'gold', 'coal', 'tin', 'iron ore',
-    'healthcare', 'hospital', 'medical', 'drug', 'pharmaceutical', 'medicine',
-    'education', 'school', 'university', 'student', 'teacher', 'academic',
-    'construction', 'building', 'real estate', 'property', 'housing', 'land'
-]
-
-# Nigerian states for validation
-NIGERIAN_STATES = [
-    'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa',
-    'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu',
-    'Federal Capital Territory', 'FCT', 'Abuja', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 
-    'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 
-    'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 
-    'Yobe', 'Zamfara'
-]
-
 # ================================
-# 🔹 3. Load Neighbourhood Data
+# 🔹 4. Request Session Setup
 # ================================
 
-def load_neighborhoods_data(filepath="state_neighbourhoods.csv"):
-    """Load neighborhood data for location mapping."""
-    NIGERIAN_STATES_COORDS = {
-        'Abia': {'lat': 5.4301, 'lon': 7.5248},
-        'Adamawa': {'lat': 9.3328, 'lon': 12.3954},
-        'Akwa Ibom': {'lat': 5.0072, 'lon': 7.9306},
-        'Anambra': {'lat': 6.2209, 'lon': 7.0388},
-        'Bauchi': {'lat': 10.3158, 'lon': 9.8474},
-        'Bayelsa': {'lat': 4.7719, 'lon': 6.0699},
-        'Benue': {'lat': 7.3369, 'lon': 8.7404},
-        'Borno': {'lat': 11.8846, 'lon': 13.1520},
-        'Cross River': {'lat': 5.8702, 'lon': 8.6089},
-        'Delta': {'lat': 5.5322, 'lon': 5.8983},
-        'Ebonyi': {'lat': 6.2649, 'lon': 8.0137},
-        'Edo': {'lat': 6.3350, 'lon': 5.6038},
-        'Ekiti': {'lat': 7.7190, 'lon': 5.3110},
-        'Enugu': {'lat': 6.4584, 'lon': 7.5463},
-        'Federal Capital Territory': {'lat': 9.0764, 'lon': 7.3986},
-        'FCT': {'lat': 9.0764, 'lon': 7.3986},
-        'Abuja': {'lat': 9.0764, 'lon': 7.3986},
-        'Gombe': {'lat': 10.2896, 'lon': 11.1698},
-        'Imo': {'lat': 5.4833, 'lon': 7.0333},
-        'Jigawa': {'lat': 12.2280, 'lon': 9.5615},
-        'Kaduna': {'lat': 10.5166, 'lon': 7.4166},
-        'Kano': {'lat': 11.9964, 'lon': 8.5167},
-        'Katsina': {'lat': 12.9855, 'lon': 7.6184},
-        'Kebbi': {'lat': 12.4539, 'lon': 4.1975},
-        'Kogi': {'lat': 7.8012, 'lon': 6.7374},
-        'Kwara': {'lat': 9.5917, 'lon': 4.5481},
-        'Lagos': {'lat': 6.5244, 'lon': 3.3792},
-        'Nasarawa': {'lat': 8.5399, 'lon': 8.2980},
-        'Niger': {'lat': 9.9309, 'lon': 5.5982},
-        'Ogun': {'lat': 7.1600, 'lon': 3.3500},
-        'Ondo': {'lat': 7.2500, 'lon': 5.2000},
-        'Osun': {'lat': 7.7583, 'lon': 4.5641},
-        'Oyo': {'lat': 7.8500, 'lon': 3.9300},
-        'Plateau': {'lat': 9.2182, 'lon': 9.5179},
-        'Rivers': {'lat': 4.7500, 'lon': 7.0000},
-        'Sokoto': {'lat': 13.0654, 'lon': 5.2379},
-        'Taraba': {'lat': 7.9994, 'lon': 10.7744},
-        'Yobe': {'lat': 12.2939, 'lon': 11.4390},
-        'Zamfara': {'lat': 12.1222, 'lon': 6.2236}
-    }
-    
-    try:
-        if not os.path.exists(filepath):
-            print(f"Neighborhood file {filepath} not found. Using default coordinates.")
-            return {
-                "by_state": {state: [{"name": state, "latitude": coords["lat"], "longitude": coords["lon"]}] 
-                           for state, coords in NIGERIAN_STATES_COORDS.items()},
-                "all_neighborhoods": [],
-                "neighborhood_names": set()
-            }
-        
-        df = pd.read_csv(filepath)
-        print(f"Loaded {len(df)} neighborhoods from {filepath}")
-        
-        neighborhoods_by_state = {}
-        all_neighborhoods = []
-        neighborhood_names = set()
-        
-        for _, row in df.iterrows():
-            state = row['state']
-            neighborhood = row['neighbourhood_name']
-            
-            try:
-                lat = float(row['latitude'])
-                lon = float(row['longitude'])
-                
-                if state not in neighborhoods_by_state:
-                    neighborhoods_by_state[state] = []
-                
-                neighborhoods_by_state[state].append({
-                    "name": neighborhood,
-                    "latitude": lat,
-                    "longitude": lon
-                })
-                
-                all_neighborhoods.append({
-                    "name": neighborhood,
-                    "state": state,
-                    "latitude": lat,
-                    "longitude": lon
-                })
-                
-                neighborhood_names.add(neighborhood.lower())
-                
-            except (ValueError, TypeError):
-                continue
-        
-        for state, coords in NIGERIAN_STATES_COORDS.items():
-            if state not in neighborhoods_by_state:
-                neighborhoods_by_state[state] = [{
-                    "name": state,
-                    "latitude": coords["lat"],
-                    "longitude": coords["lon"]
-                }]
-        
-        return {
-            "by_state": neighborhoods_by_state,
-            "all_neighborhoods": all_neighborhoods,
-            "neighborhood_names": neighborhood_names
-        }
-        
-    except Exception as e:
-        print(f"Error loading neighborhood data: {e}")
-        return {
-            "by_state": {state: [{"name": state, "latitude": coords["lat"], "longitude": coords["lon"]}] 
-                       for state, coords in NIGERIAN_STATES_COORDS.items()},
-            "all_neighborhoods": [],
-            "neighborhood_names": set()
-        }
+def create_session():
+    """Create a requests session with proper headers and configuration."""
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': random.choice(USER_AGENTS),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+    })
+    return session
 
-# ================================
-# 🔹 4. WebDriver Setup
-# ================================
-
-def init_driver():
-    """Initialize and return a WebDriver."""
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    options.add_argument(f"user-agent={random.choice(USER_AGENTS)}")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-notifications")
-    options.add_argument("--window-size=1920,1080")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    return driver
+def make_request_with_retry(session, url, max_retries=3, delay=2):
+    """Make HTTP request with retry mechanism."""
+    for attempt in range(max_retries):
+        try:
+            response = session.get(url, timeout=30)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Request failed (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay * (attempt + 1))
+            else:
+                logger.error(f"All retry attempts failed for {url}")
+                return None
+    return None
 
 # ================================
 # 🔹 5. Web Scraping Functions
 # ================================
 
-def get_business_article_links(driver):
-    """Extract business-related article links from various news sources."""
-    all_links = []
+def get_dailypost_article_links(session, limit=50):
+    """Extract article links from DailyPost pages."""
+    all_links = set()
     
-    for url in BUSINESS_NEWS_URLS:
+    for url in DAILYPOST_URLS:
         try:
-            print(f"Getting business links from {url}")
-            driver.get(url)
-            WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-            soup = BeautifulSoup(driver.page_source, "html.parser")
+            logger.info(f"Scraping links from: {url}")
+            response = make_request_with_retry(session, url)
             
-            # Get all links from the page with date patterns
-            pattern = re.compile(r"/\d{4}/\d{2}/\d{2}/")
-            for a_tag in soup.find_all("a", href=True):
-                href = a_tag["href"]
-                if pattern.search(href):
+            if not response:
+                continue
+                
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # DailyPost specific selectors
+            article_links = soup.find_all('a', href=True)
+            
+            for link in article_links:
+                href = link.get('href')
+                if href:
                     # Convert relative URLs to absolute
-                    if not href.startswith("http"):
-                        base_domain = re.match(r'https?://[^/]+', url).group(0)
-                        href = base_domain + href
-                    if href not in all_links:
-                        all_links.append(href)
+                    full_url = urljoin(url, href)
+                    
+                    # Check if it's a valid DailyPost article URL with date pattern
+                    if 'dailypost.ng' in full_url and re.search(r'/\d{4}/\d{2}/\d{2}/', full_url):
+                        all_links.add(full_url)
+                        
+            logger.info(f"Found {len(all_links)} unique links so far")
             
-            print(f"Found {len(all_links)} links so far")
+            # Add delay between requests
             time.sleep(random.uniform(2, 4))
             
         except Exception as e:
-            print(f"Error getting links from {url}: {e}")
+            logger.error(f"Error scraping {url}: {e}")
+            continue
     
-    print(f"Total unique business links found: {len(all_links)}")
-    return all_links
+    # Limit the number of articles to process
+    limited_links = list(all_links)[:limit]
+    logger.info(f"Selected {len(limited_links)} articles for processing")
+    return limited_links
 
-def scrape_business_article(driver, url):
-    """Scrape business article content."""
+def scrape_dailypost_article(session, url):
+    """Scrape individual DailyPost article."""
     try:
-        driver.get(url)
-        WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        soup = BeautifulSoup(driver.page_source, "html.parser")
+        response = make_request_with_retry(session, url)
+        if not response:
+            return None
+            
+        soup = BeautifulSoup(response.content, 'html.parser')
         
-        # Extract title and description
-        title = soup.find("title").text.strip() if soup.find("title") else "No title found"
-        meta_desc = soup.find("meta", {"name": "description"})
-        description = meta_desc["content"].strip() if meta_desc and meta_desc.has_attr("content") else "No description found"
+        # Extract title
+        title_tag = soup.find('h1', class_='entry-title') or soup.find('h1') or soup.find('title')
+        title = title_tag.get_text(strip=True) if title_tag else "No title found"
         
-        # Extract article content based on site
+        # Extract meta description
+        meta_desc = soup.find('meta', {'name': 'description'})
+        description = meta_desc.get('content', '').strip() if meta_desc else "No description found"
+        
+        # Extract article content
         article_text = ""
         
-        # DailyPost
-        if "dailypost.ng" in url:
-            content_container = soup.find("div", id="mvp-content-main")
-            if content_container:
-                paragraphs = content_container.find_all("p")
-                article_text = "\n".join([p.get_text(strip=True) for p in paragraphs])
+        # Try different content selectors for DailyPost
+        content_selectors = [
+            {'class': 'entry-content'},
+            {'id': 'mvp-content-main'},
+            {'class': 'post-content'},
+            {'class': 'article-content'},
+            {'class': 'content'}
+        ]
         
-        # Punch
-        elif "punchng.com" in url:
-            content_container = soup.find("div", class_="post-content")
-            if content_container:
-                paragraphs = content_container.find_all("p")
-                article_text = "\n".join([p.get_text(strip=True) for p in paragraphs])
+        for selector in content_selectors:
+            content_div = soup.find('div', selector)
+            if content_div:
+                paragraphs = content_div.find_all('p')
+                article_text = '\n'.join([p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)])
+                break
         
-        # Vanguard
-        elif "vanguardngr.com" in url:
-            content_container = soup.find("div", class_="entry-content")
-            if content_container:
-                paragraphs = content_container.find_all("p")
-                article_text = "\n".join([p.get_text(strip=True) for p in paragraphs])
-        
-        # Premium Times
-        elif "premiumtimesng.com" in url:
-            content_container = soup.find("div", class_="content")
-            if content_container:
-                paragraphs = content_container.find_all("p")
-                article_text = "\n".join([p.get_text(strip=True) for p in paragraphs])
-        
-        # Generic extraction
+        # Fallback: get all paragraphs
         if not article_text:
-            paragraphs = soup.find_all("p")
-            article_text = "\n".join([p.get_text(strip=True) for p in paragraphs])
+            paragraphs = soup.find_all('p')
+            article_text = '\n'.join([p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)])
+        
+        # Basic content validation
+        if len(article_text) < 100:
+            logger.warning(f"Article content too short: {url}")
+            return None
         
         return {
             "Title": title,
@@ -2207,12 +2090,17 @@ def scrape_business_article(driver, url):
         }
         
     except Exception as e:
-        print(f"Error scraping business article {url}: {e}")
+        logger.error(f"Error scraping article {url}: {e}")
         return None
 
 def is_business_relevant(article):
     """Check if article is relevant to business risks."""
-    content = (article["Title"] + " " + article["Description"] + " " + article["Content"]).lower()
+    if not article:
+        return False
+        
+    content = (article.get("Title", "") + " " + 
+              article.get("Description", "") + " " + 
+              article.get("Content", "")).lower()
     
     # Check for business keywords
     keyword_count = sum(1 for keyword in BUSINESS_KEYWORDS if keyword in content)
@@ -2272,21 +2160,8 @@ Extract the following information in JSON format:
 
 7. **Event Headline** (Max 20 words): Brief, clear headline describing the business risk
 
-8. **Industry Risktype** (Choose most relevant for the identified industry):
-   Manufacturing: Supply Chain Disruption, Forex/Import Policy, Labour Unrest, Insecurity, Energy Costs
-   Healthcare: Drug Supply Shortages, Regulatory Changes, Security Risks, Workforce Shortage, Counterfeiting
-   Finance & Banking: Cybersecurity Threats, Regulatory Policy Shifts, Economic Instability, Naira Volatility, Fraud Trends
-   Oil & Gas: Pipeline Vandalism, Community Unrest, Regulatory Compliance, Environmental Incidents, Militant Activity
-   Education: Student Protests, Terrorism/Insecurity, Infrastructure Vandalism, Regulatory Shifts, Tuition Policy Changes
-   Logistics & Transportation: Road Infrastructure Quality, Port Congestion, Fuel Price Volatility, Cargo Theft/Banditry, Regulatory Permits, Insecurity
-   Travel & Hospitality: Insecurity, Health Epidemics, Currency Volatility, Regulatory Shifts, Labour Strikes
-   Agro-allied: Climate Risks, Banditry & Herdsmen Attacks, Market Price Volatility, Supply Chain Blockages, Land Use Policy, Input Costs
-   Telecommunications: Vandalism of Infrastructure, Regulatory Compliance, Cybersecurity Threats, Power Supply Disruption, Taxation Changes
-   Mining: Community Unrest, Illegal Mining Activities, Environmental Regulations, Insecurity, Licensing Delays
-   Real Estate & Construction: Policy Shifts, Material Cost Volatility, Regulatory Approvals Delays, Insecurity, Infrastructure Quality
-
-9. **State**: Nigerian state mentioned in the article
-10. **City**: Specific city or location mentioned
+8. **State**: Nigerian state mentioned in the article
+9. **City**: Specific city or location mentioned
 
 IMPORTANT RULES:
 - If Impact Type is Positive, Impact Level must be Low
@@ -2303,7 +2178,7 @@ async def analyze_business_article(article):
         response = await client.chat.completions.create(
             messages=[
                 {"role": "system", "content": BUSINESS_ANALYSIS_PROMPT},
-                {"role": "user", "content": f"Title: {article['Title']}\n\nDescription: {article['Description']}\n\nContent: {article['Content']}"}
+                {"role": "user", "content": f"Title: {article['Title']}\n\nDescription: {article['Description']}\n\nContent: {article['Content'][:4000]}"}
             ],
             model="llama3-8b-8192",
             temperature=0.2,
@@ -2328,23 +2203,23 @@ async def analyze_business_article(article):
                 try:
                     extracted_data = json.loads(cleaned_json)
                 except:
-                    print(f"Failed to parse JSON: {extracted_text}")
+                    logger.error(f"Failed to parse JSON: {extracted_text}")
                     extracted_data = {}
             else:
-                print(f"Could not find JSON object: {extracted_text}")
+                logger.error(f"Could not find JSON object: {extracted_text}")
                 extracted_data = {}
         
         return extracted_data
     
     except Exception as e:
-        print(f"Error analyzing business article: {e}")
+        logger.error(f"Error analyzing business article: {e}")
         return {}
 
 # ================================
-# 🔹 7. Enhanced Gemini Verification and Correction Functions
+# 🔹 7. Gemini Verification Function
 # ================================
 
-GEMINI_VERIFICATION_AND_CORRECTION_PROMPT = """
+GEMINI_VERIFICATION_PROMPT = """
 You are a senior business risk analyst and quality assurance expert. Your task is to verify and correct the extracted business risk data against the original news article.
 
 **Original News Article:**
@@ -2361,49 +2236,15 @@ Content: {content}
 4. If there are errors or mismatches, correct them to accurately reflect the article content
 5. Ensure all corrections align with the business risk framework
 
-**Business Risk Framework:**
-
-**Industries and Subtypes:**
-- Manufacturing: Factory, Warehouse, Supermarket
-- Healthcare: Hospitals, Pharmaceutical
-- Finance & Banking: Banks, Insurance, Mortgage, Microfinance
-- Oil & Gas: Upstream, Downstream
-- Education: Primary, Secondary, Tertiary
-- Logistics & Transportation: Logistics, Transportation (Land), Aviation (Air), Maritime (Sea)
-- Travel & Hospitality: Hotel, Nightclub, Bar, Restaurant
-- Agro-allied: Farm, Storage, Livestock
-- Telecommunications: Telcomm, Cloud, Network
-- Mining: Mining, Processing
-- Real Estate & Construction: Construction, Real estate
-
-**Risk Factors and Indicators:**
-- Economic: GDP, Unemployment Rate, Inflation rate
-- Political: Government stability, Corruption, Rule of law
-- Technology: Digital Infrastructure, Cybersecurity, Technology Adoption
-- Social: Poverty Rate, Social unrest, Education
-- Environmental: Air and water quality, Natural disaster, Climate change probability
-- Operational: Infrastructure Quality, Supply chain disruption, Business Continuity
-- Healthcare: Healthcare Access, Disease prevalence, Healthcare Infrastructure
-- Regulatory and Legal: Burden Of Compliance, Legal Framework, Enforcement
-
-**Impact Levels:**
-- Low: No known threat, unverified report, non-violent protest, minor regulatory update
-- Medium: Notification of strike, major delay, policy change, localized violent threat
-- High: Confirmed major disruption, security incident, policy changes, health/environmental disasters
-- Critical: Shutdowns, attacks, policy crisis with national impact
-
 **IMPORTANT RULES:**
 1. If Impact Type is Positive, Impact Level MUST be Low
 2. State must be a valid Nigerian state mentioned in the article
-3. Industry and subtypes must match the business risk framework
-4. Event headline should be max 20 words and capture the essence of the business risk
-5. Only include data explicitly mentioned or clearly inferred from the article
+3. Only include data explicitly mentioned or clearly inferred from the article
 
 **Output Format:**
 Return the corrected data in JSON format with an additional "verification_status" field:
 - "verified_correct": if original data was accurate
 - "corrected": if data was corrected
-- "major_corrections": if significant changes were made
 - "excluded": if the article doesn't contain valid business risk information
 
 Example response format:
@@ -2415,11 +2256,9 @@ Example response format:
   "Impact Type": "corrected type",
   "Impact Level": "Low/Medium/High/Critical",
   "Event Headline": "corrected headline",
-  "Industry Risktype": "corrected risk type",
   "State": "corrected state",
   "City": "corrected city",
-  "verification_status": "corrected/verified_correct/major_corrections/excluded",
-  "corrections_made": "list of specific corrections made",
+  "verification_status": "corrected/verified_correct/excluded",
   "confidence_score": 8.5
 }
 
@@ -2429,10 +2268,10 @@ Return only the JSON response without explanations.
 async def verify_and_correct_with_gemini(article, extracted_data):
     """Use Gemini to verify and correct the extracted business risk data."""
     try:
-        # Prepare the verification and correction prompt
-        prompt = GEMINI_VERIFICATION_AND_CORRECTION_PROMPT.format(
+        # Prepare the verification prompt
+        prompt = GEMINI_VERIFICATION_PROMPT.format(
             title=article["Title"],
-            content=article["Content"][:4000],  # Limit content length for API
+            content=article["Content"][:3000],  # Limit content length for API
             extracted_data=json.dumps(extracted_data, indent=2)
         )
         
@@ -2447,7 +2286,6 @@ async def verify_and_correct_with_gemini(article, extracted_data):
         
         # Parse verification JSON
         try:
-            corrected_data = json.loads
             corrected_data = json.loads(verification_text)
         except json.JSONDecodeError:
             json_start = verification_text.find('{')
@@ -2457,49 +2295,39 @@ async def verify_and_correct_with_gemini(article, extracted_data):
                 try:
                     corrected_data = json.loads(cleaned_json)
                 except:
-                    print(f"Failed to parse Gemini correction JSON: {verification_text}")
+                    logger.error(f"Failed to parse Gemini correction JSON: {verification_text}")
                     corrected_data = {"verification_status": "excluded", "confidence_score": 0}
             else:
-                print(f"Could not find JSON in Gemini response: {verification_text}")
+                logger.error(f"Could not find JSON in Gemini response: {verification_text}")
                 corrected_data = {"verification_status": "excluded", "confidence_score": 0}
         
         return corrected_data
     
     except Exception as e:
-        print(f"Error with Gemini verification and correction: {e}")
+        logger.error(f"Error with Gemini verification: {e}")
         return {"verification_status": "excluded", "confidence_score": 0, "error": f"Verification failed: {e}"}
 
 # ================================
-# 🔹 8. Location and Data Processing
+# 🔹 8. Data Processing Functions
 # ================================
 
-def extract_location_info(article, neighborhoods_data):
+def extract_location_info(article):
     """Extract state and city information from article."""
-    content = article["Title"] + " " + article["Description"] + " " + article["Content"]
+    content = (article.get("Title", "") + " " + 
+              article.get("Description", "") + " " + 
+              article.get("Content", "")).lower()
     
     # Extract state
     state = "Unknown"
     for state_name in NIGERIAN_STATES:
-        if re.search(r'\b' + re.escape(state_name) + r'\b', content, re.IGNORECASE):
+        if re.search(r'\b' + re.escape(state_name.lower()) + r'\b', content):
             if state_name.lower() in ["abuja", "fct"]:
                 state = "Federal Capital Territory"
             else:
                 state = state_name
             break
     
-    # Extract city
-    city = "Unknown"
-    if state != "Unknown" and state in neighborhoods_data["by_state"]:
-        for neighborhood in neighborhoods_data["by_state"][state]:
-            if re.search(r'\b' + re.escape(neighborhood["name"]) + r'\b', content, re.IGNORECASE):
-                city = neighborhood["name"]
-                break
-        
-        # If no specific city found, use state as city
-        if city == "Unknown":
-            city = state
-    
-    return state, city
+    return state, state  # Use state as city for simplicity
 
 def validate_state(state):
     """Validate if the extracted state is a valid Nigerian state."""
@@ -2529,7 +2357,7 @@ def convert_impact_level_to_text(impact_level):
     else:
         return "Low"
 
-def create_business_risk_record(article, corrected_data, neighborhoods_data):
+def create_business_risk_record(article, corrected_data):
     """Create a business risk record using corrected data from Gemini."""
     # Get current date
     today = datetime.now()
@@ -2540,11 +2368,11 @@ def create_business_risk_record(article, corrected_data, neighborhoods_data):
     
     # If Gemini didn't provide location, try to extract it
     if state == "Unknown" or not state:
-        state, city = extract_location_info(article, neighborhoods_data)
+        state, city = extract_location_info(article)
     
     # Validate state - if unknown, return None to exclude this record
     if not validate_state(state):
-        print(f"Invalid or unknown state '{state}' - excluding record")
+        logger.warning(f"Invalid or unknown state '{state}' - excluding record")
         return None
     
     # Ensure positive impact is always low level
@@ -2569,21 +2397,14 @@ def create_business_risk_record(article, corrected_data, neighborhoods_data):
         "Business Risk Factor": corrected_data.get("Business Risk Factor", ""),
         "Risk Indicator": corrected_data.get("Risk Indicator", ""),
         "Impact Type": impact_type,
-        "Impact Level": impact_level_text,  # Now using descriptive text
-        "Event Headline": corrected_data.get("Event Headline", article["Title"][:100]),
-        "Evidence Source Link": article["Link"],
-        "Analyst Comments": "",
-        "Industry Risktype": corrected_data.get("Industry Risktype", ""),
+        "Impact Level": impact_level_text,
+        "Event Headline": corrected_data.get("Event Headline", article.get("Title", "")[:100]),
+        "Evidence Source Link": article.get("Link", ""),
         "Verification Status": corrected_data.get("verification_status", "unknown"),
-        "Confidence Score": corrected_data.get("confidence_score", 0),
-        "Corrections Made": corrected_data.get("corrections_made", "")
+        "Confidence Score": corrected_data.get("confidence_score", 0)
     }
     
     return record
-
-# ================================
-# 🔹 9. Enhanced Validation Functions
-# ================================
 
 def validate_business_record(record):
     """Validate business risk record for completeness and accuracy."""
@@ -2601,69 +2422,14 @@ def validate_business_record(record):
     if record['Impact Level'] not in ['Low', 'Medium', 'High', 'Critical']:
         return False, "Impact Level must be Low, Medium, High, or Critical"
     
-    # Validate Industry and Industry Subtype relationship
-    industry = record.get('Industry', '')
-    subtype = record.get('Industry Subtype', '')
-    
-    if industry in INDUSTRY_MAPPING and subtype:
-        if subtype not in INDUSTRY_MAPPING[industry]:
-            return False, f"Invalid subtype {subtype} for industry {industry}"
-    
     # Validate state
     if not validate_state(record.get('State', '')):
         return False, "Invalid or unknown state"
     
     return True, "Valid record"
 
-def calculate_record_quality_score(record, article):
-    """Calculate a quality score for the record based on various factors."""
-    score = 0
-    max_score = 10
-    
-    # Content alignment (3 points)
-    content = (article["Title"] + " " + article["Description"] + " " + article["Content"]).lower()
-    
-    # Check if industry is mentioned
-    industry = record.get('Industry', '').lower()
-    if industry and industry in content:
-        score += 1
-    
-    # Check if state is mentioned
-    state = record.get('State', '').lower()
-    if state and (state in content or state.replace(' ', '') in content):
-        score += 1
-    
-    # Check if risk factor keywords are present
-    risk_factor = record.get('Business Risk Factor', '').lower()
-    risk_keywords_map = {
-        'economic': ['economic', 'economy', 'inflation', 'gdp', 'unemployment', 'naira', 'dollar'],
-        'political': ['political', 'government', 'policy', 'corruption', 'stability'],
-        'operational': ['supply chain', 'infrastructure', 'disruption', 'operations'],
-        'social': ['social', 'unrest', 'protest', 'education', 'poverty'],
-        'regulatory and legal': ['regulation', 'compliance', 'legal', 'enforcement', 'law']
-    }
-    
-    if risk_factor in risk_keywords_map:
-        if any(keyword in content for keyword in risk_keywords_map[risk_factor]):
-            score += 1
-    
-    # Gemini confidence score (4 points)
-    confidence = record.get('Confidence Score', 0)
-    score += min(4, confidence * 4 / 10)
-    
-    # Verification status (2 points)
-    verification_status = record.get('Verification Status', '')
-    if verification_status == 'verified_correct':
-        score += 2
-    elif verification_status == 'corrected':
-        score += 1.5
-    elif verification_status == 'major_corrections':
-        score += 1
-    
-    return min(score, max_score)
-
 # ================================
-# 🔹 10. Email Function
+# 🔹 9. Email Function
 # ================================
 
 def send_email(sender_email, receiver_email, subject, body, attachment_path, smtp_server, smtp_port, smtp_password):
@@ -2685,60 +2451,68 @@ def send_email(sender_email, receiver_email, subject, body, attachment_path, smt
         server.sendmail(sender_email, receiver_email, msg.as_string())
         server.quit()
         
-        print(f"Email sent successfully to {receiver_email}")
+        logger.info(f"Email sent successfully to {receiver_email}")
     except Exception as e:
-        print(f"Error sending email: {e}")
+        logger.error(f"Error sending email: {e}")
 
 # ================================
-# 🔹 11. Main Function with Gemini Correction
+# 🔹 10. Main Function
 # ================================
 
 async def main():
-    """Main function to run the business risk scraper with Gemini verification and correction."""
-    print("Starting Enhanced Business Risk Data Scraper with Gemini Verification & Correction...")
+    """Main function to run the business risk scraper."""
+    logger.info("🚀 Starting DailyPost Business Risk Scraper with AI Analysis...")
     
-    # Load neighborhood data
-    neighborhoods_data = load_neighborhoods_data()
-    print(f"Loaded neighborhood data with {len(neighborhoods_data['all_neighborhoods'])} locations")
-    
-    # Initialize WebDriver
-    driver = init_driver()
+    # Create session
+    session = create_session()
     
     try:
-        # Get business article links
-        article_links = get_business_article_links(driver)
-        print(f"Found {len(article_links)} business article links")
+        # Get article links from DailyPost
+        logger.info("📄 Extracting article links from DailyPost...")
+        article_links = get_dailypost_article_links(session, limit=30)
         
-        # Scrape articles
-        articles = []
-        for url in article_links:
-            article = scrape_business_article(driver, url)
-            if article and is_business_relevant(article):
-                articles.append(article)
-                print(f"Found relevant business article: {article['Title'][:80]}...")
-            
-            time.sleep(random.uniform(2, 4))  # Random delay between requests
-        
-        print(f"Successfully scraped {len(articles)} relevant business articles")
-        
-        if not articles:
-            print("No relevant business articles found. Exiting.")
+        if not article_links:
+            logger.error("No article links found. Exiting.")
             return
         
-        # Process articles with AI analysis and Gemini verification/correction
+        # Scrape articles
+        logger.info(f"📖 Scraping {len(article_links)} articles...")
+        articles = []
+        
+        for i, url in enumerate(article_links):
+            logger.info(f"Scraping article {i+1}/{len(article_links)}: {url}")
+            
+            article = scrape_dailypost_article(session, url)
+            if article and is_business_relevant(article):
+                articles.append(article)
+                logger.info(f"✅ Added relevant article: {article['Title'][:60]}...")
+            else:
+                logger.info("❌ Article not relevant or failed to scrape")
+            
+            # Rate limiting
+            time.sleep(random.uniform(1, 3))
+        
+        logger.info(f"📊 Successfully scraped {len(articles)} relevant business articles")
+        
+        if not articles:
+            logger.error("No relevant business articles found. Exiting.")
+            return
+        
+        # Process articles with AI analysis and Gemini verification
+        logger.info("🤖 Processing articles with AI analysis...")
         business_risk_records = []
         processing_log = []
         
         for i, article in enumerate(articles):
             try:
-                print(f"\nProcessing article {i+1}/{len(articles)}: {article['Title'][:60]}...")
+                logger.info(f"Processing article {i+1}/{len(articles)}: {article['Title'][:60]}...")
                 
-                # Step 1: Initial AI analysis with Groq
-                print("  🤖 Performing initial AI analysis...")
+                # Step 1: Initial AI analysis
+                logger.info("  🔍 Performing AI analysis...")
                 initial_analysis = await analyze_business_article(article)
                 
                 if not initial_analysis:
-                    print("  ❌ Initial analysis failed - skipping")
+                    logger.warning("  ❌ Initial analysis failed - skipping")
                     processing_log.append({
                         'title': article['Title'][:100],
                         'status': 'failed_initial_analysis',
@@ -2746,30 +2520,36 @@ async def main():
                     })
                     continue
                 
-                # Step 2: Gemini verification and correction
-                print("  🔍 Performing Gemini verification and correction...")
-                corrected_data = await verify_and_correct_with_gemini(article, initial_analysis)
+                # Step 2: Gemini verification (if API key is provided)
+                if GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
+                    logger.info("  🔧 Performing Gemini verification...")
+                    corrected_data = await verify_and_correct_with_gemini(article, initial_analysis)
+                    
+                    # Check if Gemini excluded the record
+                    verification_status = corrected_data.get('verification_status', 'excluded')
+                    confidence_score = corrected_data.get('confidence_score', 0)
+                    
+                    if verification_status == 'excluded' or confidence_score < 5:
+                        logger.warning(f"  ❌ Record excluded by Gemini - Status: {verification_status}, Score: {confidence_score}")
+                        processing_log.append({
+                            'title': article['Title'][:100],
+                            'status': f'excluded_by_gemini_{verification_status}',
+                            'confidence': confidence_score,
+                            'included': False
+                        })
+                        continue
+                else:
+                    logger.info("  ⚠️ Skipping Gemini verification (API key not provided)")
+                    corrected_data = initial_analysis
+                    corrected_data['verification_status'] = 'no_gemini_verification'
+                    corrected_data['confidence_score'] = 7  # Default score
                 
-                # Check if Gemini excluded the record
-                verification_status = corrected_data.get('verification_status', 'excluded')
-                confidence_score = corrected_data.get('confidence_score', 0)
-                
-                if verification_status == 'excluded' or confidence_score < 6:
-                    print(f"  ❌ Record excluded by Gemini - Status: {verification_status}, Score: {confidence_score}")
-                    processing_log.append({
-                        'title': article['Title'][:100],
-                        'status': f'excluded_by_gemini_{verification_status}',
-                        'confidence': confidence_score,
-                        'included': False
-                    })
-                    continue
-                
-                # Step 3: Create record using corrected data
-                print("  📝 Creating business risk record...")
-                record = create_business_risk_record(article, corrected_data, neighborhoods_data)
+                # Step 3: Create record
+                logger.info("  📝 Creating business risk record...")
+                record = create_business_risk_record(article, corrected_data)
                 
                 if not record:
-                    print("  ❌ Record creation failed (likely unknown state)")
+                    logger.warning("  ❌ Record creation failed")
                     processing_log.append({
                         'title': article['Title'][:100],
                         'status': 'failed_record_creation',
@@ -2777,10 +2557,10 @@ async def main():
                     })
                     continue
                 
-                # Step 4: Final validation
+                # Step 4: Validate record
                 is_valid, validation_message = validate_business_record(record)
                 if not is_valid:
-                    print(f"  ❌ Final validation failed: {validation_message}")
+                    logger.warning(f"  ❌ Validation failed: {validation_message}")
                     processing_log.append({
                         'title': article['Title'][:100],
                         'status': f'validation_failed_{validation_message}',
@@ -2788,28 +2568,22 @@ async def main():
                     })
                     continue
                 
-                # Step 5: Calculate quality score
-                quality_score = calculate_record_quality_score(record, article)
-                record['Quality Score'] = round(quality_score, 2)
-                
                 # Add record to final list
                 business_risk_records.append(record)
                 
-                print(f"  ✅ Record INCLUDED - Status: {verification_status}, Quality: {quality_score:.1f}/10")
+                logger.info(f"  ✅ Record INCLUDED - Status: {corrected_data.get('verification_status', 'unknown')}")
                 processing_log.append({
                     'title': article['Title'][:100],
-                    'status': verification_status,
-                    'confidence': confidence_score,
-                    'quality_score': quality_score,
-                    'corrections': corrected_data.get('corrections_made', ''),
+                    'status': corrected_data.get('verification_status', 'unknown'),
+                    'confidence': corrected_data.get('confidence_score', 0),
                     'included': True
                 })
                 
-                # Add delay between Gemini API calls
-                time.sleep(3)
+                # Add delay between API calls
+                await asyncio.sleep(2)
                 
             except Exception as e:
-                print(f"  ❌ Error processing article: {e}")
+                logger.error(f"  ❌ Error processing article: {e}")
                 processing_log.append({
                     'title': article['Title'][:100],
                     'status': f'processing_error_{str(e)[:50]}',
@@ -2817,92 +2591,87 @@ async def main():
                 })
                 continue
         
-        print(f"\n📊 Processing Summary:")
-        print(f"Total articles processed: {len(articles)}")
-        print(f"Records created after Gemini correction: {len(business_risk_records)}")
-        print(f"Success rate: {(len(business_risk_records) / len(articles) * 100):.1f}%")
+        # Generate summary
+        logger.info(f"\n📊 Processing Summary:")
+        logger.info(f"Total articles processed: {len(articles)}")
+        logger.info(f"Records created: {len(business_risk_records)}")
+        logger.info(f"Success rate: {(len(business_risk_records) / len(articles) * 100):.1f}%")
         
         # Save processing log
         if processing_log:
             processing_df = pd.DataFrame(processing_log)
-            processing_filename = f'processing_log_{datetime.now().strftime("%Y%m%d%H%M%S")}.csv'
+            processing_filename = f'processing_log_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
             processing_df.to_csv(processing_filename, index=False)
-            print(f"Processing log saved to {processing_filename}")
+            logger.info(f"Processing log saved to {processing_filename}")
         
-        # Save business risk data with enhanced columns
+        # Save business risk data
         if business_risk_records:
             df = pd.DataFrame(business_risk_records)
             
-            # Sort by quality score and impact level (highest quality and critical first)
+            # Sort by confidence score and impact level
             impact_order = {'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1}
             df['Impact_Sort'] = df['Impact Level'].map(impact_order)
-            df = df.sort_values(['Quality Score', 'Impact_Sort', 'Confidence Score'], 
-                              ascending=[False, False, False])
-            
-            # Remove helper column
+            df = df.sort_values(['Confidence Score', 'Impact_Sort'], ascending=[False, False])
             df = df.drop('Impact_Sort', axis=1)
             
             # Save to CSV
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            filename = f'business_risk_data_corrected_{timestamp}.csv'
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f'business_risk_data_{timestamp}.csv'
             df.to_csv(filename, index=False)
-            print(f"Corrected business risk data saved to {filename}")
+            logger.info(f"Business risk data saved to {filename}")
             
-            # Display enhanced summary statistics
-            print("\n📊 Enhanced Business Risk Data Summary:")
-            print(f"Total Corrected Records: {len(df)}")
-            print(f"Average Quality Score: {df['Quality Score'].mean():.2f}/10")
-            print(f"Average Confidence Score: {df['Confidence Score'].mean():.2f}/10")
-            print(f"Industries Covered: {df['Industry'].nunique()}")
-            print(f"States Covered: {df['State'].nunique()}")
+            # Display summary statistics
+            logger.info("\n📈 Business Risk Data Summary:")
+            logger.info(f"Total Records: {len(df)}")
+            logger.info(f"Average Confidence Score: {df['Confidence Score'].mean():.2f}/10")
+            logger.info(f"Industries Covered: {df['Industry'].nunique()}")
+            logger.info(f"States Covered: {df['State'].nunique()}")
             
-            print("\n🔧 Verification Status Distribution:")
+            logger.info("\n🔧 Verification Status Distribution:")
             verification_counts = df['Verification Status'].value_counts()
             for status, count in verification_counts.items():
-                print(f"  {status}: {count} records")
+                logger.info(f"  {status}: {count} records")
             
-            print("\n🏭 Top Industries by Risk Events:")
+            logger.info("\n🏭 Top Industries by Risk Events:")
             industry_counts = df['Industry'].value_counts().head(5)
             for industry, count in industry_counts.items():
-                print(f"  {industry}: {count} events")
+                logger.info(f"  {industry}: {count} events")
             
-            print("\n🌍 Top States by Risk Events:")
+            logger.info("\n🌍 Top States by Risk Events:")
             state_counts = df['State'].value_counts().head(5)
             for state, count in state_counts.items():
-                print(f"  {state}: {count} events")
+                logger.info(f"  {state}: {count} events")
             
-            print("\n📈 Impact Level Distribution:")
+            logger.info("\n📊 Impact Level Distribution:")
             impact_counts = df['Impact Level'].value_counts()
             for level, count in impact_counts.items():
-                print(f"  {level}: {count} events")
+                logger.info(f"  {level}: {count} events")
             
-            # Generate correction insights
-            corrected_records = len(df[df['Verification Status'].isin(['corrected', 'major_corrections'])])
-            verified_correct = len(df[df['Verification Status'] == 'verified_correct'])
+            # Send email if credentials are provided
+            sender_email = os.environ.get('USER_EMAIL')
+            sender_password = os.environ.get('USER_PASSWORD')
             
-            # Send email with the corrected business risk data
-            send_email(
-                sender_email=os.environ.get('USER_EMAIL'),
-                receiver_email="riskcontrolservicesnig@gmail.com",
-                subject="AI-Corrected Business Risk Intelligence Report",
-                body=f"""AI-Enhanced Business Risk Intelligence with Gemini Correction
+            if sender_email and sender_password:
+                try:
+                    send_email(
+                        sender_email=sender_email,
+                        receiver_email="riskcontrolservicesnig@gmail.com",
+                        subject="DailyPost Business Risk Intelligence Report",
+                        body=f"""DailyPost Business Risk Intelligence Report
 
-🔧 GEMINI CORRECTION METRICS:
+🔍 SCRAPING SUMMARY:
 - Articles Processed: {len(articles)}
-- Records After AI Correction: {len(df)}
+- Business Risk Records Generated: {len(df)}
 - Success Rate: {(len(business_risk_records) / len(articles) * 100):.1f}%
-- Records Corrected by Gemini: {corrected_records}
-- Records Verified as Correct: {verified_correct}
-- Average Quality Score: {df['Quality Score'].mean():.2f}/10
 - Average Confidence Score: {df['Confidence Score'].mean():.2f}/10
 
-📊 BUSINESS INTELLIGENCE SUMMARY:
+📊 BUSINESS INTELLIGENCE OVERVIEW:
 - Total Risk Events: {len(df)}
 - Industries Monitored: {df['Industry'].nunique()}
 - States with Business Risks: {df['State'].nunique()}
 - Critical/High Impact Events: {len(df[df['Impact Level'].isin(['Critical', 'High'])])}
 
-🔍 TOP RISK AREAS:
+🎯 TOP RISK INSIGHTS:
 - Primary Industry at Risk: {df['Industry'].value_counts().index[0] if len(df) > 0 else 'N/A'}
 - Primary Risk Factor: {df['Business Risk Factor'].value_counts().index[0] if len(df) > 0 else 'N/A'}
 - Most Affected State: {df['State'].value_counts().index[0] if len(df) > 0 else 'N/A'}
@@ -2910,46 +2679,48 @@ async def main():
 📈 IMPACT DISTRIBUTION:
 {chr(10).join([f"- {level}: {count} events" for level, count in df['Impact Level'].value_counts().items()])}
 
-🎯 AI ENHANCEMENT FEATURES:
-- Gemini AI verification and correction of all extracted data
-- Content intent validation ensures accuracy
-- Unknown states automatically filtered out
-- Impact levels shown as descriptive text (Low/Medium/High/Critical)
-- Quality scoring for each record
-- Comprehensive error tracking and correction log
+🔧 TECHNICAL FEATURES:
+- Web scraping from DailyPost business sections
+- AI-powered content analysis with Groq LLM
+- Gemini verification and correction (if API key provided)
+- Automatic business relevance filtering
+- Nigerian state validation
+- Impact level descriptive mapping
 
 📋 ATTACHED FILES:
-1. {filename} - AI-corrected business risk data
-2. {processing_filename} - Detailed processing and correction log
+1. {filename} - Complete business risk dataset
+2. {processing_filename} - Processing log with success/failure details
 
-This report ensures maximum accuracy through AI-powered verification and correction of business risk intelligence.
+This automated report provides real-time business risk intelligence from Nigerian news sources.
 
-Generated with dual AI verification (Groq + Gemini) from Nigerian business news sources.
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """,
-                attachment_path=filename,
-                smtp_server="smtp.gmail.com",
-                smtp_port=465,
-                smtp_password=os.environ.get('USER_PASSWORD')
-            )
+                        attachment_path=filename,
+                        smtp_server="smtp.gmail.com",
+                        smtp_port=465,
+                        smtp_password=sender_password
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send email: {e}")
+            else:
+                logger.info("Email credentials not provided - skipping email send")
             
-            print("✅ AI-Enhanced business risk processing with Gemini correction completed successfully!")
+            logger.info("✅ Business risk processing completed successfully!")
         else:
-            print("❌ No business risk records passed AI verification and correction.")
+            logger.warning("❌ No business risk records were generated.")
     
     except Exception as e:
-        print(f"❌ Error in main processing: {e}")
-    
-    finally:
-        # Clean up
-        driver.quit()
+        logger.error(f"❌ Error in main processing: {e}")
+        raise
 
 # ================================
-# 🔹 12. Script Execution
+# 🔹 11. Script Execution
 # ================================
 
 if __name__ == "__main__":
-    print("🚀 Starting AI-Enhanced Business Risk Scraper with Gemini Verification & Correction...")
-    print("⚠️  Remember to replace 'YOUR_GEMINI_API_KEY_HERE' with your actual Gemini API key!")
-    print("🔧 Features: Gemini verification, automatic correction, descriptive impact levels, unknown state filtering")
+    print("🚀 Starting DailyPost Business Risk Scraper...")
+    print("🔧 Features: Improved web scraping, AI analysis, Gemini verification")
+    print("📊 Target: DailyPost business and economy articles")
+    print("=" * 60)
+    
     asyncio.run(main())
-
