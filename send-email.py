@@ -1833,6 +1833,868 @@
 
 
 
+# import os
+# import random
+# import time
+# import asyncio
+# import pandas as pd
+# import re
+# from datetime import datetime
+# import smtplib
+# from email.mime.multipart import MIMEMultipart
+# from email.mime.text import MIMEText
+# from email.mime.application import MIMEApplication
+# import requests
+# from bs4 import BeautifulSoup
+# from groq import AsyncGroq
+# import google.generativeai as genai
+# import json
+# from urllib.parse import urljoin, urlparse
+# import logging
+
+# # ================================
+# # 🔹 1. Setup Logging
+# # ================================
+
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# logger = logging.getLogger(__name__)
+
+# # ================================
+# # 🔹 2. Initialize APIs
+# # ================================
+
+# # Initialize Groq API Client
+# client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY", "your_groq_api_key_here"))
+
+# # Initialize Gemini API Client
+# GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"  # Replace with your actual Gemini API key
+# genai.configure(api_key=GEMINI_API_KEY)
+# gemini_model = genai.GenerativeModel('gemini-1.5-pro')
+
+# # ================================
+# # 🔹 3. Constants and Configuration
+# # ================================
+
+# # User-Agent Rotation
+# USER_AGENTS = [
+#     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+#     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+#     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+#     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
+# ]
+
+# # DailyPost specific URLs
+# DAILYPOST_URLS = [
+#     "https://dailypost.ng/category/business/",
+#     "https://dailypost.ng/category/economy/",
+#     "https://dailypost.ng/"
+# ]
+
+# # Strict Business Keywords for filtering
+# BUSINESS_KEYWORDS = [
+#     'gdp', 'inflation', 'unemployment', 'economic growth', 'recession', 'naira', 'dollar', 'forex',
+#     'interest rate', 'monetary policy', 'fiscal policy', 'budget', 'revenue', 'tax', 'taxation',
+#     'business', 'company', 'industry', 'factory', 'manufacturing', 'production', 'supply chain', 'logistics',
+#     'import', 'export', 'trade', 'commerce', 'investment', 'investor', 'market', 'price', 'cost',
+#     'infrastructure', 'port', 'airport', 'road', 'railway', 'power', 'electricity', 'fuel', 'energy',
+#     'telecommunications', 'banking', 'finance', 'insurance', 'loan', 'credit',
+#     'oil', 'gas', 'petroleum', 'pipeline', 'refinery', 'crude', 'nnpc', 'upstream', 'downstream',
+#     'agriculture', 'farming', 'crop', 'livestock', 'food', 'harvest',
+#     'mining', 'solid minerals', 'healthcare', 'hospital', 'medical', 'drug', 'pharmaceutical',
+#     'construction', 'building', 'real estate', 'property', 'housing',
+#     'strike affecting business', 'factory closure', 'plant shutdown', 'supply disruption',
+#     'regulatory compliance', 'business license', 'operations', 'productivity', 'profitability'
+# ]
+
+# # Political Keywords to EXCLUDE (unless they have direct business impact)
+# POLITICAL_KEYWORDS_TO_EXCLUDE = [
+#     'election', 'campaign', 'political party', 'pdp', 'apc', 'labour party', 'candidate',
+#     'governor race', 'senate race', 'political crisis', 'coalition', 'political alliance',
+#     'political defection', 'party leadership', 'political rally', 'political meeting'
+# ]
+
+# # Nigerian states
+# NIGERIAN_STATES = [
+#     'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa',
+#     'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu',
+#     'Federal Capital Territory', 'FCT', 'Abuja', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 
+#     'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 
+#     'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 
+#     'Yobe', 'Zamfara'
+# ]
+
+# # Business Risk Framework
+# BUSINESS_RISK_FACTORS = {
+#     "Economic": ["GDP", "Unemployment Rate", "Inflation rate"],
+#     "Political": ["Government stability", "Corruption", "Rule of law"],
+#     "Technology": ["Digital Infrastructure", "Cybersecurity", "Technology Adoption"],
+#     "Social": ["Poverty Rate", "Social unrest", "Education"],
+#     "Environmental": ["Air and water quality", "Natural disaster", "Climate change probability"],
+#     "Operational": ["Infrastructure Quality", "Supply chain disruption", "Business Continuity"],
+#     "Healthcare": ["Healthcare Access", "Disease prevalence", "Healthcare Infrastructure"],
+#     "Regulatory and Legal": ["Burden Of Compliance", "Legal Framework", "Enforcement"]
+# }
+
+# # Strict Industry Mapping with Keywords
+# INDUSTRY_MAPPING = {
+#     "Manufacturing": {
+#         "subtypes": ["Factory", "Warehouse", "Processing Plant"],
+#         "keywords": ["factory", "manufacturing", "production", "plant", "assembly", "industrial", "processing", "warehouse"]
+#     },
+#     "Healthcare": {
+#         "subtypes": ["Hospitals", "Pharmaceutical"],
+#         "keywords": ["hospital", "medical", "healthcare", "pharmaceutical", "drug", "medicine", "clinic", "health"]
+#     },
+#     "Finance & Banking": {
+#         "subtypes": ["Banks", "Insurance", "Mortgage", "Microfinance"],
+#         "keywords": ["bank", "banking", "finance", "financial", "insurance", "loan", "credit", "mortgage", "microfinance"]
+#     },
+#     "Oil & Gas": {
+#         "subtypes": ["Upstream", "Downstream"],
+#         "keywords": ["oil", "gas", "petroleum", "crude", "refinery", "pipeline", "nnpc", "upstream", "downstream", "fuel"]
+#     },
+#     "Education": {
+#         "subtypes": ["Primary", "Secondary", "Tertiary"],
+#         "keywords": ["school", "education", "university", "college", "student", "teacher", "academic", "classroom"]
+#     },
+#     "Logistics & Transportation": {
+#         "subtypes": ["Logistics", "Transportation (Land)", "Aviation (Air)", "Maritime (Sea)"],
+#         "keywords": ["transport", "logistics", "shipping", "cargo", "freight", "port", "airport", "railway", "aviation", "maritime"]
+#     },
+#     "Travel & Hospitality": {
+#         "subtypes": ["Hotel", "Restaurant", "Tourism"],
+#         "keywords": ["hotel", "tourism", "restaurant", "hospitality", "travel", "tourist", "accommodation"]
+#     },
+#     "Agro-allied": {
+#         "subtypes": ["Farm", "Storage", "Livestock"],
+#         "keywords": ["agriculture", "farming", "farm", "crop", "livestock", "agricultural", "harvest", "food production"]
+#     },
+#     "Telecommunications": {
+#         "subtypes": ["Telcomm", "Cloud", "Network"],
+#         "keywords": ["telecommunications", "telecom", "network", "internet", "communication", "mobile", "broadband"]
+#     },
+#     "Mining": {
+#         "subtypes": ["Mining", "Processing"],
+#         "keywords": ["mining", "mineral", "gold", "coal", "tin", "iron ore", "solid minerals", "extraction"]
+#     },
+#     "Real Estate & Construction": {
+#         "subtypes": ["Construction", "Real estate"],
+#         "keywords": ["construction", "building", "real estate", "property", "housing", "infrastructure", "contractor"]
+#     }
+# }
+
+# # Impact Level Mapping
+# IMPACT_LEVEL_MAPPING = {
+#     1: "Low",
+#     2: "Medium", 
+#     3: "High",
+#     4: "Critical",
+#     "Low": 1,
+#     "Medium": 2,
+#     "High": 3,
+#     "Critical": 4
+# }
+
+# # ================================
+# # 🔹 4. Request Session Setup
+# # ================================
+
+# def create_session():
+#     """Create a requests session with proper headers and configuration."""
+#     session = requests.Session()
+#     session.headers.update({
+#         'User-Agent': random.choice(USER_AGENTS),
+#         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+#         'Accept-Language': 'en-US,en;q=0.5',
+#         'Accept-Encoding': 'gzip, deflate',
+#         'Connection': 'keep-alive',
+#         'Upgrade-Insecure-Requests': '1'
+#     })
+#     return session
+
+# def make_request_with_retry(session, url, max_retries=3, delay=2):
+#     """Make HTTP request with retry mechanism."""
+#     for attempt in range(max_retries):
+#         try:
+#             response = session.get(url, timeout=30)
+#             response.raise_for_status()
+#             return response
+#         except requests.exceptions.RequestException as e:
+#             logger.warning(f"Request failed (attempt {attempt + 1}/{max_retries}): {e}")
+#             if attempt < max_retries - 1:
+#                 time.sleep(delay * (attempt + 1))
+#             else:
+#                 logger.error(f"All retry attempts failed for {url}")
+#                 return None
+#     return None
+
+# # ================================
+# # 🔹 5. Web Scraping Functions
+# # ================================
+
+# def get_dailypost_article_links(session, limit=50):
+#     """Extract article links from DailyPost pages."""
+#     all_links = set()
+    
+#     for url in DAILYPOST_URLS:
+#         try:
+#             logger.info(f"Scraping links from: {url}")
+#             response = make_request_with_retry(session, url)
+            
+#             if not response:
+#                 continue
+                
+#             soup = BeautifulSoup(response.content, 'html.parser')
+            
+#             # DailyPost specific selectors
+#             article_links = soup.find_all('a', href=True)
+            
+#             for link in article_links:
+#                 href = link.get('href')
+#                 if href:
+#                     # Convert relative URLs to absolute
+#                     full_url = urljoin(url, href)
+                    
+#                     # Check if it's a valid DailyPost article URL with date pattern
+#                     if 'dailypost.ng' in full_url and re.search(r'/\d{4}/\d{2}/\d{2}/', full_url):
+#                         all_links.add(full_url)
+                        
+#             logger.info(f"Found {len(all_links)} unique links so far")
+            
+#             # Add delay between requests
+#             time.sleep(random.uniform(2, 4))
+            
+#         except Exception as e:
+#             logger.error(f"Error scraping {url}: {e}")
+#             continue
+    
+#     # Limit the number of articles to process
+#     limited_links = list(all_links)[:limit]
+#     logger.info(f"Selected {len(limited_links)} articles for processing")
+#     return limited_links
+
+# def scrape_dailypost_article(session, url):
+#     """Scrape individual DailyPost article."""
+#     try:
+#         response = make_request_with_retry(session, url)
+#         if not response:
+#             return None
+            
+#         soup = BeautifulSoup(response.content, 'html.parser')
+        
+#         # Extract title
+#         title_tag = soup.find('h1', class_='entry-title') or soup.find('h1') or soup.find('title')
+#         title = title_tag.get_text(strip=True) if title_tag else "No title found"
+        
+#         # Extract meta description
+#         meta_desc = soup.find('meta', {'name': 'description'})
+#         description = meta_desc.get('content', '').strip() if meta_desc else "No description found"
+        
+#         # Extract article content
+#         article_text = ""
+        
+#         # Try different content selectors for DailyPost
+#         content_selectors = [
+#             {'class': 'entry-content'},
+#             {'id': 'mvp-content-main'},
+#             {'class': 'post-content'},
+#             {'class': 'article-content'},
+#             {'class': 'content'}
+#         ]
+        
+#         for selector in content_selectors:
+#             content_div = soup.find('div', selector)
+#             if content_div:
+#                 paragraphs = content_div.find_all('p')
+#                 article_text = '\n'.join([p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)])
+#                 break
+        
+#         # Fallback: get all paragraphs
+#         if not article_text:
+#             paragraphs = soup.find_all('p')
+#             article_text = '\n'.join([p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)])
+        
+#         # Basic content validation
+#         if len(article_text) < 100:
+#             logger.warning(f"Article content too short: {url}")
+#             return None
+        
+#         return {
+#             "Title": title,
+#             "Description": description,
+#             "Content": article_text,
+#             "Link": url
+#         }
+        
+#     except Exception as e:
+#         logger.error(f"Error scraping article {url}: {e}")
+#         return None
+
+# def is_business_relevant(article):
+#     """Check if article is relevant to business risks with strict filtering."""
+#     if not article:
+#         return False
+        
+#     content = (article.get("Title", "") + " " + 
+#               article.get("Description", "") + " " + 
+#               article.get("Content", "")).lower()
+    
+#     # First check if it's purely political content to exclude
+#     political_exclusion_count = sum(1 for keyword in POLITICAL_KEYWORDS_TO_EXCLUDE if keyword in content)
+    
+#     # If it's heavily political, check if it has business impact
+#     if political_exclusion_count >= 2:
+#         # Only allow if it has strong business keywords too
+#         business_keyword_count = sum(1 for keyword in BUSINESS_KEYWORDS if keyword in content)
+#         if business_keyword_count < 3:
+#             logger.info("Excluding purely political content with no business impact")
+#             return False
+    
+#     # Check for business keywords
+#     keyword_count = sum(1 for keyword in BUSINESS_KEYWORDS if keyword in content)
+    
+#     # Article is relevant if it contains at least 2 business keywords
+#     return keyword_count >= 2
+
+# def validate_industry_content_match(industry, content):
+#     """Validate that the industry actually matches the article content."""
+#     if not industry or industry not in INDUSTRY_MAPPING:
+#         return False
+    
+#     content_lower = content.lower()
+#     industry_keywords = INDUSTRY_MAPPING[industry]["keywords"]
+    
+#     # Check if at least 2 industry-specific keywords are present
+#     keyword_matches = sum(1 for keyword in industry_keywords if keyword in content_lower)
+    
+#     return keyword_matches >= 2
+
+# # ================================
+# # 🔹 6. AI Analysis Functions
+# # ================================
+
+# STRICT_BUSINESS_ANALYSIS_PROMPT = """
+# You are an expert business risk analyst specializing in Nigerian market conditions. 
+# Analyze the following news article and extract business risk information ONLY if it has DIRECT business impact.
+
+# CRITICAL RULES:
+# 1. DO NOT classify political news as business risks unless they have DIRECT impact on business operations
+# 2. Political party activities, elections, campaigns, and leadership changes are NOT business risks
+# 3. Only include if the article discusses specific business impacts like:
+#    - Factory closures or operational disruptions
+#    - Supply chain disruptions
+#    - Regulatory changes affecting business operations
+#    - Economic indicators affecting business
+#    - Industry-specific operational issues
+#    - Infrastructure problems affecting business operations
+
+# 4. The INDUSTRY must be directly mentioned or clearly implied in the article content
+# 5. If you cannot find a clear industry connection, return "NO_BUSINESS_RISK"
+
+# Extract the following information in JSON format ONLY if genuine business risk:
+
+# 1. **Industry** (Must be directly related to article content):
+#    - Manufacturing (only if factories, production, or manufacturing mentioned)
+#    - Healthcare (only if hospitals, medical facilities, or pharmaceutical mentioned)
+#    - Finance & Banking (only if banks, financial institutions, or banking operations mentioned)
+#    - Oil & Gas (only if oil, gas, petroleum, refinery, or energy sector mentioned)
+#    - Education (only if schools, universities, or educational institutions mentioned)
+#    - Logistics & Transportation (only if transport, shipping, ports, or logistics mentioned)
+#    - Travel & Hospitality (only if hotels, tourism, or hospitality sector mentioned)
+#    - Agro-allied (only if agriculture, farming, or food production mentioned)
+#    - Telecommunications (only if telecom, networks, or communication infrastructure mentioned)
+#    - Mining (only if mining, minerals, or extraction mentioned)
+#    - Real Estate & Construction (only if construction, building, or real estate mentioned)
+
+# 2. **Industry Subtype** (Based on specific mentions in article)
+
+# 3. **Business Risk Factor**: Economic, Political, Technology, Social, Environmental, Operational, Healthcare, Regulatory and Legal
+
+# 4. **Risk Indicator**: Specific measurable indicator from the article
+
+# 5. **Impact Type**: Positive or Negative
+
+# 6. **Impact Level**: Low, Medium, High, Critical
+
+# 7. **Event Headline** (Max 20 words): Focus on business impact, not political aspects
+
+# 8. **State**: Nigerian state mentioned in the article
+# 9. **City**: Specific city or location mentioned
+
+# IMPORTANT:
+# - If the article is primarily about politics without clear business impact, return "NO_BUSINESS_RISK"
+# - If you cannot find specific industry keywords in the content, return "NO_BUSINESS_RISK"
+# - Only positive impacts should be Low level
+# - The industry must be explicitly supported by content keywords
+
+# Return your analysis in JSON format or "NO_BUSINESS_RISK" if not applicable.
+# """
+
+# async def analyze_business_article(article):
+#     """Use AI to analyze business article and extract risk information with strict validation."""
+#     try:
+#         response = await client.chat.completions.create(
+#             messages=[
+#                 {"role": "system", "content": STRICT_BUSINESS_ANALYSIS_PROMPT},
+#                 {"role": "user", "content": f"Title: {article['Title']}\n\nDescription: {article['Description']}\n\nContent: {article['Content'][:4000]}"}
+#             ],
+#             model="llama3-8b-8192",
+#             temperature=0.1,  # Lower temperature for more consistent results
+#             max_tokens=2000
+#         )
+        
+#         extracted_text = response.choices[0].message.content.strip()
+        
+#         # Check if AI determined no business risk
+#         if "NO_BUSINESS_RISK" in extracted_text:
+#             logger.info("AI determined no genuine business risk")
+#             return None
+        
+#         # Find JSON content
+#         json_match = re.search(r'```(?:json)?(.*?)```', extracted_text, re.DOTALL)
+#         if json_match:
+#             extracted_text = json_match.group(1).strip()
+        
+#         # Try to parse JSON
+#         try:
+#             extracted_data = json.loads(extracted_text)
+#         except json.JSONDecodeError:
+#             json_start = extracted_text.find('{')
+#             json_end = extracted_text.rfind('}') + 1
+#             if json_start >= 0 and json_end > json_start:
+#                 cleaned_json = extracted_text[json_start:json_end]
+#                 try:
+#                     extracted_data = json.loads(cleaned_json)
+#                 except:
+#                     logger.error(f"Failed to parse JSON: {extracted_text}")
+#                     return None
+#             else:
+#                 logger.error(f"Could not find JSON object: {extracted_text}")
+#                 return None
+        
+#         # Additional validation: Check if industry matches content
+#         industry = extracted_data.get("Industry", "")
+#         full_content = article['Title'] + " " + article['Description'] + " " + article['Content']
+        
+#         if not validate_industry_content_match(industry, full_content):
+#             logger.info(f"Industry '{industry}' doesn't match article content - excluding")
+#             return None
+        
+#         return extracted_data
+    
+#     except Exception as e:
+#         logger.error(f"Error analyzing business article: {e}")
+#         return None
+
+# # ================================
+# # 🔹 7. Data Processing Functions
+# # ================================
+
+# def extract_location_info(article):
+#     """Extract state and city information from article."""
+#     content = (article.get("Title", "") + " " + 
+#               article.get("Description", "") + " " + 
+#               article.get("Content", "")).lower()
+    
+#     # Extract state
+#     state = "Unknown"
+#     for state_name in NIGERIAN_STATES:
+#         if re.search(r'\b' + re.escape(state_name.lower()) + r'\b', content):
+#             if state_name.lower() in ["abuja", "fct"]:
+#                 state = "Federal Capital Territory"
+#             else:
+#                 state = state_name
+#             break
+    
+#     return state, state  # Use state as city for simplicity
+
+# def validate_state(state):
+#     """Validate if the extracted state is a valid Nigerian state."""
+#     if state == "Unknown" or not state:
+#         return False
+    
+#     # Normalize state name
+#     if state.lower() in ["abuja", "fct"]:
+#         state = "Federal Capital Territory"
+    
+#     return state in NIGERIAN_STATES
+
+# def convert_impact_level_to_text(impact_level):
+#     """Convert numeric impact level to descriptive text."""
+#     if isinstance(impact_level, (int, float)):
+#         return IMPACT_LEVEL_MAPPING.get(int(impact_level), "Low")
+#     elif isinstance(impact_level, str):
+#         # If it's already text, validate and return
+#         if impact_level.title() in ["Low", "Medium", "High", "Critical"]:
+#             return impact_level.title()
+#         else:
+#             # Try to convert if it's a number in string form
+#             try:
+#                 return IMPACT_LEVEL_MAPPING.get(int(impact_level), "Low")
+#             except ValueError:
+#                 return "Low"
+#     else:
+#         return "Low"
+
+# def create_business_risk_record(article, extracted_data):
+#     """Create a business risk record using extracted data."""
+#     # Get current date
+#     today = datetime.now()
+    
+#     # Use extracted data
+#     state = extracted_data.get("State", "Unknown")
+#     city = extracted_data.get("City", "Unknown")
+    
+#     # If AI didn't provide location, try to extract it
+#     if state == "Unknown" or not state:
+#         state, city = extract_location_info(article)
+    
+#     # Validate state - if unknown, return None to exclude this record
+#     if not validate_state(state):
+#         logger.warning(f"Invalid or unknown state '{state}' - excluding record")
+#         return None
+    
+#     # Ensure positive impact is always low level
+#     impact_type = extracted_data.get("Impact Type", "Negative")
+#     impact_level = extracted_data.get("Impact Level", "Medium")
+    
+#     # Convert impact level to text format
+#     impact_level_text = convert_impact_level_to_text(impact_level)
+    
+#     if impact_type == "Positive" and impact_level_text != "Low":
+#         impact_level_text = "Low"
+    
+#     record = {
+#         "Day": today.day,
+#         "Month": today.strftime("%b"),
+#         "Year": today.year,
+#         "Date": today.strftime("%d/%m/%Y"),
+#         "State": state,
+#         "City": city,
+#         "Industry": extracted_data.get("Industry", ""),
+#         "Industry Subtype": extracted_data.get("Industry Subtype", ""),
+#         "Business Risk Factor": extracted_data.get("Business Risk Factor", ""),
+#         "Risk Indicator": extracted_data.get("Risk Indicator", ""),
+#         "Impact Type": impact_type,
+#         "Impact Level": impact_level_text,
+#         "Event Headline": extracted_data.get("Event Headline", article.get("Title", "")[:100]),
+#         "Evidence Source Link": article.get("Link", "")
+#     }
+    
+#     return record
+
+# def validate_business_record(record):
+#     """Validate business risk record for completeness and accuracy."""
+#     required_fields = ['Industry', 'Business Risk Factor', 'Risk Indicator', 'Impact Type', 'Impact Level']
+    
+#     for field in required_fields:
+#         if not record.get(field) or record[field] == "":
+#             return False, f"Missing required field: {field}"
+    
+#     # Validate Impact Type and Level relationship
+#     if record['Impact Type'] == 'Positive' and record['Impact Level'] != 'Low':
+#         return False, "Positive impact must have Low impact level"
+    
+#     # Validate Impact Level options
+#     if record['Impact Level'] not in ['Low', 'Medium', 'High', 'Critical']:
+#         return False, "Impact Level must be Low, Medium, High, or Critical"
+    
+#     # Validate state
+#     if not validate_state(record.get('State', '')):
+#         return False, "Invalid or unknown state"
+    
+#     # Validate industry is in our mapping
+#     if record.get('Industry', '') not in INDUSTRY_MAPPING:
+#         return False, f"Invalid industry: {record.get('Industry', '')}"
+    
+#     return True, "Valid record"
+
+# # ================================
+# # 🔹 8. Email Function
+# # ================================
+
+# def send_email(sender_email, receiver_email, subject, body, attachment_path, smtp_server, smtp_port, smtp_password):
+#     """Send email with business risk data attached."""
+#     try:
+#         msg = MIMEMultipart()
+#         msg['From'] = sender_email
+#         msg['To'] = receiver_email
+#         msg['Subject'] = subject
+#         msg.attach(MIMEText(body, 'plain'))
+
+#         with open(attachment_path, 'rb') as attachment:
+#             part = MIMEApplication(attachment.read(), Name=os.path.basename(attachment_path))
+#         part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
+#         msg.attach(part)
+
+#         server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+#         server.login(sender_email, smtp_password)
+#         server.sendmail(sender_email, receiver_email, msg.as_string())
+#         server.quit()
+        
+#         logger.info(f"Email sent successfully to {receiver_email}")
+#     except Exception as e:
+#         logger.error(f"Error sending email: {e}")
+
+# # ================================
+# # 🔹 9. Main Function
+# # ================================
+
+# async def main():
+#     """Main function to run the business risk scraper."""
+#     logger.info("🚀 Starting DailyPost Business Risk Scraper with Strict Industry Validation...")
+    
+#     # Create session
+#     session = create_session()
+    
+#     try:
+#         # Get article links from DailyPost
+#         logger.info("📄 Extracting article links from DailyPost...")
+#         article_links = get_dailypost_article_links(session, limit=30)
+        
+#         if not article_links:
+#             logger.error("No article links found. Exiting.")
+#             return
+        
+#         # Scrape articles
+#         logger.info(f"📖 Scraping {len(article_links)} articles...")
+#         articles = []
+        
+#         for i, url in enumerate(article_links):
+#             logger.info(f"Scraping article {i+1}/{len(article_links)}: {url}")
+            
+#             article = scrape_dailypost_article(session, url)
+#             if article and is_business_relevant(article):
+#                 articles.append(article)
+#                 logger.info(f"✅ Added relevant article: {article['Title'][:60]}...")
+#             else:
+#                 logger.info("❌ Article not relevant or failed to scrape")
+            
+#             # Rate limiting
+#             time.sleep(random.uniform(1, 3))
+        
+#         logger.info(f"📊 Successfully scraped {len(articles)} relevant business articles")
+        
+#         if not articles:
+#             logger.error("No relevant business articles found. Exiting.")
+#             return
+        
+#         # Process articles with AI analysis
+#         logger.info("🤖 Processing articles with strict AI analysis...")
+#         business_risk_records = []
+#         processing_log = []
+        
+#         for i, article in enumerate(articles):
+#             try:
+#                 logger.info(f"Processing article {i+1}/{len(articles)}: {article['Title'][:60]}...")
+                
+#                 # AI analysis with strict validation
+#                 logger.info("  🔍 Performing strict AI analysis...")
+#                 extracted_data = await analyze_business_article(article)
+                
+#                 if not extracted_data:
+#                     logger.warning("  ❌ AI analysis failed or no business risk identified - skipping")
+#                     processing_log.append({
+#                         'title': article['Title'][:100],
+#                         'status': 'no_business_risk_identified',
+#                         'included': False
+#                     })
+#                     continue
+                
+#                 # Create record
+#                 logger.info("  📝 Creating business risk record...")
+#                 record = create_business_risk_record(article, extracted_data)
+                
+#                 if not record:
+#                     logger.warning("  ❌ Record creation failed")
+#                     processing_log.append({
+#                         'title': article['Title'][:100],
+#                         'status': 'failed_record_creation',
+#                         'included': False
+#                     })
+#                     continue
+                
+#                 # Validate record
+#                 is_valid, validation_message = validate_business_record(record)
+#                 if not is_valid:
+#                     logger.warning(f"  ❌ Validation failed: {validation_message}")
+#                     processing_log.append({
+#                         'title': article['Title'][:100],
+#                         'status': f'validation_failed_{validation_message}',
+#                         'included': False
+#                     })
+#                     continue
+                
+#                 # Add record to final list
+#                 business_risk_records.append(record)
+                
+#                 logger.info(f"  ✅ Record INCLUDED - Industry: {record['Industry']}")
+#                 processing_log.append({
+#                     'title': article['Title'][:100],
+#                     'status': 'included',
+#                     'industry': record['Industry'],
+#                     'included': True
+#                 })
+                
+#                 # Add delay between API calls
+#                 await asyncio.sleep(2)
+                
+#             except Exception as e:
+#                 logger.error(f"  ❌ Error processing article: {e}")
+#                 processing_log.append({
+#                     'title': article['Title'][:100],
+#                     'status': f'processing_error_{str(e)[:50]}',
+#                     'included': False
+#                 })
+#                 continue
+        
+#         # Generate summary
+#         logger.info(f"\n📊 Processing Summary:")
+#         logger.info(f"Total articles processed: {len(articles)}")
+#         logger.info(f"Records created: {len(business_risk_records)}")
+#         logger.info(f"Success rate: {(len(business_risk_records) / len(articles) * 100):.1f}%")
+        
+#         # Save processing log
+#         if processing_log:
+#             processing_df = pd.DataFrame(processing_log)
+#             processing_filename = f'processing_log_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+#             processing_df.to_csv(processing_filename, index=False)
+#             logger.info(f"Processing log saved to {processing_filename}")
+        
+#         # Save business risk data
+#         if business_risk_records:
+#             df = pd.DataFrame(business_risk_records)
+            
+#             # Sort by impact level and industry
+#             impact_order = {'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1}
+#             df['Impact_Sort'] = df['Impact Level'].map(impact_order)
+#             df = df.sort_values(['Impact_Sort', 'Industry'], ascending=[False, True])
+#             df = df.drop('Impact_Sort', axis=1)
+            
+#             # Save to CSV
+#             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+#             filename = f'business_risk_data_{timestamp}.csv'
+#             df.to_csv(filename, index=False)
+#             logger.info(f"Business risk data saved to {filename}")
+            
+#             # Display summary statistics
+#             logger.info("\n📈 Business Risk Data Summary:")
+#             logger.info(f"Total Records: {len(df)}")
+#             logger.info(f"Industries Covered: {df['Industry'].nunique()}")
+#             logger.info(f"States Covered: {df['State'].nunique()}")
+            
+#             logger.info("\n🏭 Industries with Risk Events:")
+#             industry_counts = df['Industry'].value_counts()
+#             for industry, count in industry_counts.items():
+#                 logger.info(f"  {industry}: {count} events")
+            
+#             logger.info("\n🌍 States with Risk Events:")
+#             state_counts = df['State'].value_counts().head(5)
+#             for state, count in state_counts.items():
+#                 logger.info(f"  {state}: {count} events")
+            
+#             logger.info("\n📊 Impact Level Distribution:")
+#             impact_counts = df['Impact Level'].value_counts()
+#             for level, count in impact_counts.items():
+#                 logger.info(f"  {level}: {count} events")
+            
+#             logger.info("\n🔍 Risk Factor Distribution:")
+#             risk_factor_counts = df['Business Risk Factor'].value_counts()
+#             for factor, count in risk_factor_counts.items():
+#                 logger.info(f"  {factor}: {count} events")
+            
+#             # Send email if credentials are provided
+#             sender_email = os.environ.get('USER_EMAIL')
+#             sender_password = os.environ.get('USER_PASSWORD')
+            
+#             if sender_email and sender_password:
+#                 try:
+#                     send_email(
+#                         sender_email=sender_email,
+#                         receiver_email="riskcontrolservicesnig@gmail.com",
+#                         subject="Validated Business Risk Intelligence Report - DailyPost",
+#                         body=f"""Validated Business Risk Intelligence Report - DailyPost
+
+# 🔍 QUALITY ASSURANCE SUMMARY:
+# - Articles Processed: {len(articles)}
+# - Business Risk Records Generated: {len(df)}
+# - Success Rate: {(len(business_risk_records) / len(articles) * 100):.1f}%
+# - Strict Industry Validation Applied: ✅
+# - Political Content Filtering: ✅
+
+# 📊 BUSINESS INTELLIGENCE OVERVIEW:
+# - Total Risk Events: {len(df)}
+# - Industries Monitored: {df['Industry'].nunique()}
+# - States with Business Risks: {df['State'].nunique()}
+# - Critical/High Impact Events: {len(df[df['Impact Level'].isin(['Critical', 'High'])])}
+
+# 🎯 TOP RISK INSIGHTS:
+# - Primary Industry at Risk: {df['Industry'].value_counts().index[0] if len(df) > 0 else 'N/A'}
+# - Primary Risk Factor: {df['Business Risk Factor'].value_counts().index[0] if len(df) > 0 else 'N/A'}
+# - Most Affected State: {df['State'].value_counts().index[0] if len(df) > 0 else 'N/A'}
+
+# 🏭 INDUSTRY DISTRIBUTION:
+# {chr(10).join([f"- {industry}: {count} events" for industry, count in df['Industry'].value_counts().items()])}
+
+# 📈 IMPACT DISTRIBUTION:
+# {chr(10).join([f"- {level}: {count} events" for level, count in df['Impact Level'].value_counts().items()])}
+
+# 🔧 QUALITY IMPROVEMENTS:
+# - Removed "Verification Status" and "Confidence Score" columns
+# - Strict industry-content validation implemented
+# - Political content filtering (no random industry assignment)
+# - Industry keywords matching validation
+# - Enhanced business relevance filtering
+
+# 📋 ATTACHED FILES:
+# 1. {filename} - Validated business risk dataset
+# 2. {processing_filename} - Processing log with inclusion/exclusion details
+
+# This report ensures only genuine business risks with proper industry classification are included.
+
+# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+# """,
+#                         attachment_path=filename,
+#                         smtp_server="smtp.gmail.com",
+#                         smtp_port=465,
+#                         smtp_password=sender_password
+#                     )
+#                 except Exception as e:
+#                     logger.error(f"Failed to send email: {e}")
+#             else:
+#                 logger.info("Email credentials not provided - skipping email send")
+            
+#             logger.info("✅ Validated business risk processing completed successfully!")
+            
+#             # Display sample records for verification
+#             logger.info("\n🔍 Sample Business Risk Records:")
+#             for i, record in enumerate(df.head(3).to_dict('records')):
+#                 logger.info(f"\nRecord {i+1}:")
+#                 logger.info(f"  Industry: {record['Industry']}")
+#                 logger.info(f"  Event: {record['Event Headline']}")
+#                 logger.info(f"  Risk Factor: {record['Business Risk Factor']}")
+#                 logger.info(f"  Impact Level: {record['Impact Level']}")
+#                 logger.info(f"  State: {record['State']}")
+#         else:
+#             logger.warning("❌ No validated business risk records were generated.")
+    
+#     except Exception as e:
+#         logger.error(f"❌ Error in main processing: {e}")
+#         raise
+
+# # ================================
+# # 🔹 10. Script Execution
+# # ================================
+
+# if __name__ == "__main__":
+#     print("🚀 Starting Validated DailyPost Business Risk Scraper...")
+#     print("🔧 Features: Strict industry validation, political content filtering")
+#     print("📊 Target: DailyPost business articles with genuine industry impact")
+#     print("🚫 Excludes: Political content without business relevance")
+#     print("=" * 70)
+    
+#     asyncio.run(main())
+
 import os
 import random
 import time
@@ -1890,9 +2752,9 @@ DAILYPOST_URLS = [
     "https://dailypost.ng/"
 ]
 
-# Strict Business Keywords for filtering
+# Business Keywords for filtering
 BUSINESS_KEYWORDS = [
-    'gdp', 'inflation', 'unemployment', 'economic growth', 'recession', 'naira', 'dollar', 'forex',
+    'gdp', 'inflation', 'unemployment', 'economic', 'economy', 'recession', 'growth', 'naira', 'dollar', 'forex',
     'interest rate', 'monetary policy', 'fiscal policy', 'budget', 'revenue', 'tax', 'taxation',
     'business', 'company', 'industry', 'factory', 'manufacturing', 'production', 'supply chain', 'logistics',
     'import', 'export', 'trade', 'commerce', 'investment', 'investor', 'market', 'price', 'cost',
@@ -1902,8 +2764,7 @@ BUSINESS_KEYWORDS = [
     'agriculture', 'farming', 'crop', 'livestock', 'food', 'harvest',
     'mining', 'solid minerals', 'healthcare', 'hospital', 'medical', 'drug', 'pharmaceutical',
     'construction', 'building', 'real estate', 'property', 'housing',
-    'strike affecting business', 'factory closure', 'plant shutdown', 'supply disruption',
-    'regulatory compliance', 'business license', 'operations', 'productivity', 'profitability'
+    'strike', 'shutdown', 'closure', 'disruption', 'operations', 'productivity', 'profitability'
 ]
 
 # Political Keywords to EXCLUDE (unless they have direct business impact)
@@ -1935,51 +2796,55 @@ BUSINESS_RISK_FACTORS = {
     "Regulatory and Legal": ["Burden Of Compliance", "Legal Framework", "Enforcement"]
 }
 
-# Strict Industry Mapping with Keywords
+# Balanced Industry Mapping with Keywords
 INDUSTRY_MAPPING = {
     "Manufacturing": {
-        "subtypes": ["Factory", "Warehouse", "Processing Plant"],
-        "keywords": ["factory", "manufacturing", "production", "plant", "assembly", "industrial", "processing", "warehouse"]
+        "subtypes": ["Factory", "Processing Plant", "Industrial"],
+        "keywords": ["manufacturing", "factory", "production", "industrial", "processing", "plant"]
     },
     "Healthcare": {
         "subtypes": ["Hospitals", "Pharmaceutical"],
-        "keywords": ["hospital", "medical", "healthcare", "pharmaceutical", "drug", "medicine", "clinic", "health"]
+        "keywords": ["hospital", "medical", "healthcare", "pharmaceutical", "drug", "medicine", "clinic"]
     },
     "Finance & Banking": {
-        "subtypes": ["Banks", "Insurance", "Mortgage", "Microfinance"],
-        "keywords": ["bank", "banking", "finance", "financial", "insurance", "loan", "credit", "mortgage", "microfinance"]
+        "subtypes": ["Banks", "Insurance", "Financial Services"],
+        "keywords": ["bank", "banking", "finance", "financial", "insurance", "loan", "credit", "investment"]
     },
     "Oil & Gas": {
         "subtypes": ["Upstream", "Downstream"],
-        "keywords": ["oil", "gas", "petroleum", "crude", "refinery", "pipeline", "nnpc", "upstream", "downstream", "fuel"]
+        "keywords": ["oil", "gas", "petroleum", "crude", "refinery", "pipeline", "nnpc", "fuel", "energy"]
     },
     "Education": {
         "subtypes": ["Primary", "Secondary", "Tertiary"],
-        "keywords": ["school", "education", "university", "college", "student", "teacher", "academic", "classroom"]
+        "keywords": ["school", "education", "university", "college", "student", "teacher", "academic"]
     },
     "Logistics & Transportation": {
-        "subtypes": ["Logistics", "Transportation (Land)", "Aviation (Air)", "Maritime (Sea)"],
-        "keywords": ["transport", "logistics", "shipping", "cargo", "freight", "port", "airport", "railway", "aviation", "maritime"]
+        "subtypes": ["Logistics", "Transportation", "Shipping"],
+        "keywords": ["transport", "logistics", "shipping", "cargo", "freight", "port", "airport", "railway"]
     },
     "Travel & Hospitality": {
         "subtypes": ["Hotel", "Restaurant", "Tourism"],
-        "keywords": ["hotel", "tourism", "restaurant", "hospitality", "travel", "tourist", "accommodation"]
+        "keywords": ["hotel", "tourism", "restaurant", "hospitality", "travel", "tourist"]
     },
     "Agro-allied": {
-        "subtypes": ["Farm", "Storage", "Livestock"],
-        "keywords": ["agriculture", "farming", "farm", "crop", "livestock", "agricultural", "harvest", "food production"]
+        "subtypes": ["Agriculture", "Food Processing"],
+        "keywords": ["agriculture", "farming", "farm", "crop", "livestock", "agricultural", "food"]
     },
     "Telecommunications": {
-        "subtypes": ["Telcomm", "Cloud", "Network"],
-        "keywords": ["telecommunications", "telecom", "network", "internet", "communication", "mobile", "broadband"]
+        "subtypes": ["Telecom", "Network", "Communication"],
+        "keywords": ["telecommunications", "telecom", "network", "internet", "communication", "mobile"]
     },
     "Mining": {
         "subtypes": ["Mining", "Processing"],
-        "keywords": ["mining", "mineral", "gold", "coal", "tin", "iron ore", "solid minerals", "extraction"]
+        "keywords": ["mining", "mineral", "gold", "coal", "tin", "iron ore", "solid minerals"]
     },
     "Real Estate & Construction": {
-        "subtypes": ["Construction", "Real estate"],
-        "keywords": ["construction", "building", "real estate", "property", "housing", "infrastructure", "contractor"]
+        "subtypes": ["Construction", "Real Estate"],
+        "keywords": ["construction", "building", "real estate", "property", "housing", "infrastructure"]
+    },
+    "Government & Public Sector": {
+        "subtypes": ["Revenue", "Public Services", "Economic Policy"],
+        "keywords": ["revenue", "government", "public", "policy", "economic", "budget", "taxation"]
     }
 }
 
@@ -2131,7 +2996,7 @@ def scrape_dailypost_article(session, url):
         return None
 
 def is_business_relevant(article):
-    """Check if article is relevant to business risks with strict filtering."""
+    """Check if article is relevant to business risks with balanced filtering."""
     if not article:
         return False
         
@@ -2157,89 +3022,85 @@ def is_business_relevant(article):
     return keyword_count >= 2
 
 def validate_industry_content_match(industry, content):
-    """Validate that the industry actually matches the article content."""
+    """Validate that the industry matches the article content with balanced criteria."""
     if not industry or industry not in INDUSTRY_MAPPING:
         return False
     
     content_lower = content.lower()
     industry_keywords = INDUSTRY_MAPPING[industry]["keywords"]
     
-    # Check if at least 2 industry-specific keywords are present
+    # Check if at least 1 industry-specific keyword is present (more balanced)
     keyword_matches = sum(1 for keyword in industry_keywords if keyword in content_lower)
     
-    return keyword_matches >= 2
+    return keyword_matches >= 1
 
 # ================================
 # 🔹 6. AI Analysis Functions
 # ================================
 
-STRICT_BUSINESS_ANALYSIS_PROMPT = """
+BALANCED_BUSINESS_ANALYSIS_PROMPT = """
 You are an expert business risk analyst specializing in Nigerian market conditions. 
-Analyze the following news article and extract business risk information ONLY if it has DIRECT business impact.
+Analyze the following news article and extract business risk information if it has business relevance.
 
-CRITICAL RULES:
-1. DO NOT classify political news as business risks unless they have DIRECT impact on business operations
-2. Political party activities, elections, campaigns, and leadership changes are NOT business risks
-3. Only include if the article discusses specific business impacts like:
-   - Factory closures or operational disruptions
-   - Supply chain disruptions
-   - Regulatory changes affecting business operations
-   - Economic indicators affecting business
-   - Industry-specific operational issues
-   - Infrastructure problems affecting business operations
+GUIDELINES:
+1. Include economic news that affects businesses (GDP, inflation, currency, markets, etc.)
+2. Include industry-specific operational issues and disruptions
+3. Include regulatory changes affecting business operations
+4. Include infrastructure issues affecting business
+5. Include revenue and taxation news from government agencies
+6. EXCLUDE pure political party activities, elections, campaigns unless they directly impact business
+7. If the article discusses economic policies, market conditions, or business operations, include it
 
-4. The INDUSTRY must be directly mentioned or clearly implied in the article content
-5. If you cannot find a clear industry connection, return "NO_BUSINESS_RISK"
+Extract the following information in JSON format:
 
-Extract the following information in JSON format ONLY if genuine business risk:
+1. **Industry** (Choose most relevant to article content):
+   - Manufacturing (for production, factories, industrial activities)
+   - Healthcare (for medical, pharmaceutical, health services)
+   - Finance & Banking (for financial services, banking, investments)
+   - Oil & Gas (for petroleum, energy, fuel-related content)
+   - Education (for schools, universities, educational services)
+   - Logistics & Transportation (for transport, shipping, ports, logistics)
+   - Travel & Hospitality (for hotels, tourism, restaurants)
+   - Agro-allied (for agriculture, farming, food production)
+   - Telecommunications (for telecom, networks, communications)
+   - Mining (for minerals, mining activities)
+   - Real Estate & Construction (for construction, building, property)
+   - Government & Public Sector (for revenue collection, economic policies, public services)
 
-1. **Industry** (Must be directly related to article content):
-   - Manufacturing (only if factories, production, or manufacturing mentioned)
-   - Healthcare (only if hospitals, medical facilities, or pharmaceutical mentioned)
-   - Finance & Banking (only if banks, financial institutions, or banking operations mentioned)
-   - Oil & Gas (only if oil, gas, petroleum, refinery, or energy sector mentioned)
-   - Education (only if schools, universities, or educational institutions mentioned)
-   - Logistics & Transportation (only if transport, shipping, ports, or logistics mentioned)
-   - Travel & Hospitality (only if hotels, tourism, or hospitality sector mentioned)
-   - Agro-allied (only if agriculture, farming, or food production mentioned)
-   - Telecommunications (only if telecom, networks, or communication infrastructure mentioned)
-   - Mining (only if mining, minerals, or extraction mentioned)
-   - Real Estate & Construction (only if construction, building, or real estate mentioned)
-
-2. **Industry Subtype** (Based on specific mentions in article)
+2. **Industry Subtype** (Based on specific content)
 
 3. **Business Risk Factor**: Economic, Political, Technology, Social, Environmental, Operational, Healthcare, Regulatory and Legal
 
-4. **Risk Indicator**: Specific measurable indicator from the article
+4. **Risk Indicator**: Specific indicator from the article
 
 5. **Impact Type**: Positive or Negative
 
 6. **Impact Level**: Low, Medium, High, Critical
 
-7. **Event Headline** (Max 20 words): Focus on business impact, not political aspects
+7. **Event Headline** (Max 20 words): Focus on business/economic impact
 
-8. **State**: Nigerian state mentioned in the article
-9. **City**: Specific city or location mentioned
+8. **State**: Nigerian state mentioned (or "Federal" for national issues)
+9. **City**: Specific city mentioned
 
 IMPORTANT:
-- If the article is primarily about politics without clear business impact, return "NO_BUSINESS_RISK"
-- If you cannot find specific industry keywords in the content, return "NO_BUSINESS_RISK"
-- Only positive impacts should be Low level
-- The industry must be explicitly supported by content keywords
+- If the article is purely about sports, entertainment, or personal matters, return "NO_BUSINESS_RISK"
+- Focus on business and economic relevance rather than strict industry keyword matching
+- If positive impact, use Low level only
+- Use "Federal" as state for national economic/business news
 
 Return your analysis in JSON format or "NO_BUSINESS_RISK" if not applicable.
 """
 
 async def analyze_business_article(article):
-    """Use AI to analyze business article and extract risk information with strict validation."""
+    """Use AI to analyze business article with balanced validation."""
     try:
         response = await client.chat.completions.create(
             messages=[
-                {"role": "system", "content": STRICT_BUSINESS_ANALYSIS_PROMPT},
+                {"role": "system", "content": BALANCED_BUSINESS_ANALYSIS_PROMPT},
                 {"role": "user", "content": f"Title: {article['Title']}\n\nDescription: {article['Description']}\n\nContent: {article['Content'][:4000]}"}
             ],
             model="llama3-8b-8192",
-            temperature=0.1,  # Lower temperature for more consistent results
+            temperature=0.2,
             max_tokens=2000
         )
         
@@ -2272,13 +3133,15 @@ async def analyze_business_article(article):
                 logger.error(f"Could not find JSON object: {extracted_text}")
                 return None
         
-        # Additional validation: Check if industry matches content
+        # Balanced validation: Check if industry somewhat matches content
         industry = extracted_data.get("Industry", "")
         full_content = article['Title'] + " " + article['Description'] + " " + article['Content']
         
-        if not validate_industry_content_match(industry, full_content):
-            logger.info(f"Industry '{industry}' doesn't match article content - excluding")
-            return None
+        # More lenient validation - allow if there's some relevance
+        if industry and industry in INDUSTRY_MAPPING:
+            if not validate_industry_content_match(industry, full_content):
+                logger.info(f"Industry '{industry}' doesn't strongly match content, but keeping with lower confidence")
+                # Don't exclude, but note the mismatch
         
         return extracted_data
     
@@ -2297,7 +3160,7 @@ def extract_location_info(article):
               article.get("Content", "")).lower()
     
     # Extract state
-    state = "Unknown"
+    state = "Federal"  # Default for national news
     for state_name in NIGERIAN_STATES:
         if re.search(r'\b' + re.escape(state_name.lower()) + r'\b', content):
             if state_name.lower() in ["abuja", "fct"]:
@@ -2306,10 +3169,12 @@ def extract_location_info(article):
                 state = state_name
             break
     
-    return state, state  # Use state as city for simplicity
+    return state, state
 
 def validate_state(state):
     """Validate if the extracted state is a valid Nigerian state."""
+    if state == "Federal":  # Allow Federal for national news
+        return True
     if state == "Unknown" or not state:
         return False
     
@@ -2324,11 +3189,9 @@ def convert_impact_level_to_text(impact_level):
     if isinstance(impact_level, (int, float)):
         return IMPACT_LEVEL_MAPPING.get(int(impact_level), "Low")
     elif isinstance(impact_level, str):
-        # If it's already text, validate and return
         if impact_level.title() in ["Low", "Medium", "High", "Critical"]:
             return impact_level.title()
         else:
-            # Try to convert if it's a number in string form
             try:
                 return IMPACT_LEVEL_MAPPING.get(int(impact_level), "Low")
             except ValueError:
@@ -2338,27 +3201,25 @@ def convert_impact_level_to_text(impact_level):
 
 def create_business_risk_record(article, extracted_data):
     """Create a business risk record using extracted data."""
-    # Get current date
     today = datetime.now()
     
-    # Use extracted data
-    state = extracted_data.get("State", "Unknown")
-    city = extracted_data.get("City", "Unknown")
+    state = extracted_data.get("State", "Federal")
+    city = extracted_data.get("City", "")
     
     # If AI didn't provide location, try to extract it
-    if state == "Unknown" or not state:
+    if state in ["Unknown", "N/A", "", None]:
         state, city = extract_location_info(article)
     
-    # Validate state - if unknown, return None to exclude this record
+    # Validate state
     if not validate_state(state):
-        logger.warning(f"Invalid or unknown state '{state}' - excluding record")
-        return None
+        logger.warning(f"Invalid state '{state}' - using Federal")
+        state = "Federal"
+        city = "Federal"
     
     # Ensure positive impact is always low level
     impact_type = extracted_data.get("Impact Type", "Negative")
     impact_level = extracted_data.get("Impact Level", "Medium")
     
-    # Convert impact level to text format
     impact_level_text = convert_impact_level_to_text(impact_level)
     
     if impact_type == "Positive" and impact_level_text != "Low":
@@ -2370,7 +3231,7 @@ def create_business_risk_record(article, extracted_data):
         "Year": today.year,
         "Date": today.strftime("%d/%m/%Y"),
         "State": state,
-        "City": city,
+        "City": city if city else state,
         "Industry": extracted_data.get("Industry", ""),
         "Industry Subtype": extracted_data.get("Industry Subtype", ""),
         "Business Risk Factor": extracted_data.get("Business Risk Factor", ""),
@@ -2384,8 +3245,8 @@ def create_business_risk_record(article, extracted_data):
     return record
 
 def validate_business_record(record):
-    """Validate business risk record for completeness and accuracy."""
-    required_fields = ['Industry', 'Business Risk Factor', 'Risk Indicator', 'Impact Type', 'Impact Level']
+    """Validate business risk record with balanced criteria."""
+    required_fields = ['Industry', 'Business Risk Factor', 'Impact Type', 'Impact Level']
     
     for field in required_fields:
         if not record.get(field) or record[field] == "":
@@ -2399,13 +3260,10 @@ def validate_business_record(record):
     if record['Impact Level'] not in ['Low', 'Medium', 'High', 'Critical']:
         return False, "Impact Level must be Low, Medium, High, or Critical"
     
-    # Validate state
-    if not validate_state(record.get('State', '')):
-        return False, "Invalid or unknown state"
-    
-    # Validate industry is in our mapping
-    if record.get('Industry', '') not in INDUSTRY_MAPPING:
-        return False, f"Invalid industry: {record.get('Industry', '')}"
+    # More lenient state validation
+    state = record.get('State', '')
+    if not validate_state(state):
+        return False, f"Invalid state: {state}"
     
     return True, "Valid record"
 
@@ -2442,9 +3300,8 @@ def send_email(sender_email, receiver_email, subject, body, attachment_path, smt
 
 async def main():
     """Main function to run the business risk scraper."""
-    logger.info("🚀 Starting DailyPost Business Risk Scraper with Strict Industry Validation...")
+    logger.info("🚀 Starting Balanced DailyPost Business Risk Scraper...")
     
-    # Create session
     session = create_session()
     
     try:
@@ -2470,7 +3327,6 @@ async def main():
             else:
                 logger.info("❌ Article not relevant or failed to scrape")
             
-            # Rate limiting
             time.sleep(random.uniform(1, 3))
         
         logger.info(f"📊 Successfully scraped {len(articles)} relevant business articles")
@@ -2480,7 +3336,7 @@ async def main():
             return
         
         # Process articles with AI analysis
-        logger.info("🤖 Processing articles with strict AI analysis...")
+        logger.info("🤖 Processing articles with balanced AI analysis...")
         business_risk_records = []
         processing_log = []
         
@@ -2488,12 +3344,10 @@ async def main():
             try:
                 logger.info(f"Processing article {i+1}/{len(articles)}: {article['Title'][:60]}...")
                 
-                # AI analysis with strict validation
-                logger.info("  🔍 Performing strict AI analysis...")
                 extracted_data = await analyze_business_article(article)
                 
                 if not extracted_data:
-                    logger.warning("  ❌ AI analysis failed or no business risk identified - skipping")
+                    logger.warning("  ❌ No business risk identified - skipping")
                     processing_log.append({
                         'title': article['Title'][:100],
                         'status': 'no_business_risk_identified',
@@ -2501,8 +3355,6 @@ async def main():
                     })
                     continue
                 
-                # Create record
-                logger.info("  📝 Creating business risk record...")
                 record = create_business_risk_record(article, extracted_data)
                 
                 if not record:
@@ -2514,7 +3366,6 @@ async def main():
                     })
                     continue
                 
-                # Validate record
                 is_valid, validation_message = validate_business_record(record)
                 if not is_valid:
                     logger.warning(f"  ❌ Validation failed: {validation_message}")
@@ -2525,7 +3376,6 @@ async def main():
                     })
                     continue
                 
-                # Add record to final list
                 business_risk_records.append(record)
                 
                 logger.info(f"  ✅ Record INCLUDED - Industry: {record['Industry']}")
@@ -2536,8 +3386,7 @@ async def main():
                     'included': True
                 })
                 
-                # Add delay between API calls
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)  # Rate limiting
                 
             except Exception as e:
                 logger.error(f"  ❌ Error processing article: {e}")
@@ -2565,13 +3414,11 @@ async def main():
         if business_risk_records:
             df = pd.DataFrame(business_risk_records)
             
-            # Sort by impact level and industry
             impact_order = {'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1}
             df['Impact_Sort'] = df['Impact Level'].map(impact_order)
             df = df.sort_values(['Impact_Sort', 'Industry'], ascending=[False, True])
             df = df.drop('Impact_Sort', axis=1)
             
-            # Save to CSV
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f'business_risk_data_{timestamp}.csv'
             df.to_csv(filename, index=False)
@@ -2612,14 +3459,14 @@ async def main():
                     send_email(
                         sender_email=sender_email,
                         receiver_email="riskcontrolservicesnig@gmail.com",
-                        subject="Validated Business Risk Intelligence Report - DailyPost",
-                        body=f"""Validated Business Risk Intelligence Report - DailyPost
+                        subject="Balanced Business Risk Intelligence Report - DailyPost",
+                        body=f"""Balanced Business Risk Intelligence Report - DailyPost
 
-🔍 QUALITY ASSURANCE SUMMARY:
+🔍 PROCESSING SUMMARY:
 - Articles Processed: {len(articles)}
 - Business Risk Records Generated: {len(df)}
 - Success Rate: {(len(business_risk_records) / len(articles) * 100):.1f}%
-- Strict Industry Validation Applied: ✅
+- Balanced Validation Applied: ✅
 - Political Content Filtering: ✅
 
 📊 BUSINESS INTELLIGENCE OVERVIEW:
@@ -2639,18 +3486,19 @@ async def main():
 📈 IMPACT DISTRIBUTION:
 {chr(10).join([f"- {level}: {count} events" for level, count in df['Impact Level'].value_counts().items()])}
 
-🔧 QUALITY IMPROVEMENTS:
-- Removed "Verification Status" and "Confidence Score" columns
-- Strict industry-content validation implemented
-- Political content filtering (no random industry assignment)
-- Industry keywords matching validation
-- Enhanced business relevance filtering
+🔧 IMPROVEMENTS IMPLEMENTED:
+- Removed verification and confidence columns
+- Balanced industry validation (not overly strict)
+- Added "Government & Public Sector" for revenue/policy news
+- Allow "Federal" state for national economic news
+- Focus on business relevance over strict keyword matching
+- Enhanced political content filtering
 
 📋 ATTACHED FILES:
-1. {filename} - Validated business risk dataset
+1. {filename} - Business risk dataset (clean format)
 2. {processing_filename} - Processing log with inclusion/exclusion details
 
-This report ensures only genuine business risks with proper industry classification are included.
+This report provides business-relevant risk intelligence from Nigerian news sources.
 
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """,
@@ -2664,7 +3512,7 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             else:
                 logger.info("Email credentials not provided - skipping email send")
             
-            logger.info("✅ Validated business risk processing completed successfully!")
+            logger.info("✅ Balanced business risk processing completed successfully!")
             
             # Display sample records for verification
             logger.info("\n🔍 Sample Business Risk Records:")
@@ -2675,8 +3523,9 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                 logger.info(f"  Risk Factor: {record['Business Risk Factor']}")
                 logger.info(f"  Impact Level: {record['Impact Level']}")
                 logger.info(f"  State: {record['State']}")
+                logger.info(f"  Link: {record['Evidence Source Link']}")
         else:
-            logger.warning("❌ No validated business risk records were generated.")
+            logger.warning("❌ No business risk records were generated.")
     
     except Exception as e:
         logger.error(f"❌ Error in main processing: {e}")
@@ -2687,10 +3536,10 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 # ================================
 
 if __name__ == "__main__":
-    print("🚀 Starting Validated DailyPost Business Risk Scraper...")
-    print("🔧 Features: Strict industry validation, political content filtering")
-    print("📊 Target: DailyPost business articles with genuine industry impact")
-    print("🚫 Excludes: Political content without business relevance")
+    print("🚀 Starting Balanced DailyPost Business Risk Scraper...")
+    print("🔧 Features: Balanced validation, economic focus, political filtering")
+    print("📊 Target: Business and economic news with industry relevance")
+    print("🎯 Goal: Generate actionable business risk intelligence")
     print("=" * 70)
     
     asyncio.run(main())
