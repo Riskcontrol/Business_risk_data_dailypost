@@ -2210,7 +2210,7 @@ Extract the following information in JSON format ONLY if genuine business risk:
 
 3. **Business Risk Factor**: Economic, Political, Technology, Social, Environmental, Operational, Healthcare, Regulatory and Legal
 
-4. **Risk Indicator**: Specific measurable indicator from the article
+4. **Risk Indicator**: GDP, Unemployment Rate, Inflation Rate, Government Stability, Corruption, Rule of Law, Digital Infrastructure, Cybersecurity, Technology Adoption, Poverty Rate, Social Unrest, Education, Air and Water Quality, Natural Disaster, Climate Change Probability, Infrastructure Quality, Supply Chain Disruption, Business Continuity, Healthcare Access, Disease Prevalence, Healthcare Infrastructure, Burden of Compliance, Legal Framework, Enforcement
 
 5. **Impact Type**: Positive or Negative
 
